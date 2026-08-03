@@ -1,94 +1,125 @@
 import os
-import time
+import re
+import asyncio
 from pyrogram import Client, filters
 
-# ==================================================
-#  تنظیمات اولیه - این مقادیر از Railway می‌خوان
-# ==================================================
+# ========== تنظیمات ==========
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 SESSION_STRING = os.getenv("SESSION_STRING")
 
-# لیست چت‌آیدی گروه‌هایی که ربات توشون کار کنه
-ALLOWED_CHATS = [
-    -1003998125518,  # گروه شما
-    # -1001234567890,  # گروه دوم (در صورت نیاز)
-]
+# شناسه گروهی که قراره توش کار کنه
+ALLOWED_CHATS = [-1003998125518]  
 
-# دیکشنری برای ذخیره زمان آخرین میو هر کاربر
-# ساختار: { user_id: timestamp }
-last_miao = {}
+# اسم ربات توکنی که به «میو» پاسخ میده (بدون @)
+TOKEN_BOT_USERNAME = "YourTokenBotUsername"  # این رو با اسم واقعی ربات توکنی عوض کن!
 
-# ==================================================
-#  ساخت کلاینت یوزربات
-# ==================================================
+# دیکشنری برای ذخیره تسک‌های در حال اجرا (برای هر گروه)
+pending_tasks = {}
+
+# ========== ساخت کلاینت ==========
 app = Client(
     name="userbot",
     session_string=SESSION_STRING,
     api_id=API_ID,
-    api_hash=API_HASH,
-    in_memory=True,  # برای Railway که فایل ذخیره نمیشه
+    api_hash=API_HASH
 )
 
-# ==================================================
-#  توابع کمکی
-# ==================================================
-def get_remaining_time(last_time, cooldown_seconds=300):
-    """بازگرداندن زمان باقی‌مونده به ثانیه"""
-    elapsed = time.time() - last_time
-    if elapsed >= cooldown_seconds:
-        return 0
-    return int(cooldown_seconds - elapsed)
+# ========== تابع استخراج زمان از متن ربات ==========
+def extract_wait_time(text):
+    """
+    زمان رو از متن ربات توکنی استخراج میکنه و به ثانیه برمیگردونه
+    مثال‌های پشتیبانی‌شده:
+    - "بعد از ۴:۲۵ میتونی..."  (پشتیبانی از اعداد فارسی و انگلیسی)
+    - "⏳ بعد از ۴:۲۵ میتونی دوباره میو میو کنی"
+    - "۴ دقیقه و ۲۵ ثانیه"
+    - "۵ دقیقه"
+    - "۳۰ ثانیه"
+    """
 
-def format_time(seconds):
-    """تبدیل ثانیه به رشته خوانا"""
-    if seconds <= 0:
-        return "همین الان"
-    minutes = seconds // 60
-    secs = seconds % 60
-    if minutes > 0:
-        return f"{minutes} دقیقه و {secs} ثانیه"
-    return f"{secs} ثانیه"
+    # الگوی "دقیقه:ثانیه" (مثل ۴:۲۵)
+    match = re.search(r'(\d+)\s*[:：]\s*(\d+)', text)
+    if match:
+        minutes = int(match.group(1))
+        seconds = int(match.group(2))
+        return minutes * 60 + seconds
 
-# ==================================================
-#  هندلر پیام‌های «میو» و «میو میو»
-# ==================================================
-@app.on_message(filters.text & filters.group & filters.regex(r'^(میو|میو میو)$'))
-async def miao_handler(client, message):
+    # الگوی "X دقیقه و Y ثانیه"
+    match = re.search(r'(\d+)\s*دقیقه\s*و\s*(\d+)\s*ثانیه', text)
+    if match:
+        minutes = int(match.group(1))
+        seconds = int(match.group(2))
+        return minutes * 60 + seconds
+
+    # الگوی "X دقیقه"
+    match = re.search(r'(\d+)\s*دقیقه', text)
+    if match:
+        return int(match.group(1)) * 60
+
+    # الگوی "X ثانیه"
+    match = re.search(r'(\d+)\s*ثانیه', text)
+    if match:
+        return int(match.group(1))
+
+    return None  # هیچ زمانی پیدا نشد
+
+# ========== تابع ارسال «میو» بعد از تایم مشخص ==========
+async def send_meow_after_delay(chat_id, delay_seconds):
+    """بعد از delay_seconds، یک «میو» به گروه میفرسته"""
+    try:
+        await asyncio.sleep(delay_seconds)
+        await app.send_message(chat_id, "میو")
+        print(f"✅ میو جدید ارسال شد به گروه {chat_id}")
+    except Exception as e:
+        print(f"❌ خطا در ارسال میو: {e}")
+    finally:
+        # بعد از ارسال، تسک رو از لیست پاک کن
+        pending_tasks.pop(chat_id, None)
+
+# ========== هندلر پیام‌های ربات توکنی ==========
+@app.on_message(filters.group & filters.regex(r'میو پوینت'))
+async def handle_token_bot_reply(client, message):
     chat_id = message.chat.id
-    user_id = message.from_user.id
 
-    # ۱. چک کن که گروه مجاز هست یا نه
+    # فقط گروه‌های مجاز
     if chat_id not in ALLOWED_CHATS:
-        return  # هیچ کاری نکن
+        return
 
-    # ۲. چک کن کاربر قبلاً میو کرده یا نه
-    now = time.time()
-    if user_id in last_miao:
-        remaining = get_remaining_time(last_miao[user_id])
-        if remaining > 0:
-            # هنوز تایم نرسیده → پیام خطا بده
-            time_str = format_time(remaining)
-            await message.reply(
-                f"⏳ {time_str} دیگه می‌تونی میو کنی!"
-            )
-            return
+    # بررسی کن که فرستنده، ربات توکنی ما باشه
+    if not message.from_user or not message.from_user.is_bot:
+        return
+    if message.from_user.username != TOKEN_BOT_USERNAME:
+        return
 
-    # ۳. تایم گذشته یا اولین باره → اجازه میو بده
-    last_miao[user_id] = now  # زمان جدید رو ثبت کن
+    # بررسی کن که این پیام، ریپلای به پیام خودمون باشه
+    if not message.reply_to_message:
+        return
 
-    # جواب شبیه ربات اصلی (عدد میوپوینت ثابت)
-    fake_points = 140396  # یه عدد نمونه
-    await message.reply(
-        f"401 میو پوینت گرفتی 🐾\n"
-        f"💰 میو پوینت هات : {fake_points:,} 🪙\n"
-        f"⏳ بعد از ۴:۲۵ میتونی دوباره میو میو کنی"
-    )
+    # گرفتن ID خودمون (یوزربات)
+    me = await client.get_me()
+    if message.reply_to_message.from_user.id != me.id:
+        return  # این ریپلای به ما نیست، پس بیخیال
 
-# ==================================================
-#  اجرای ربات
-# ==================================================
+    # استخراج زمان از متن پیام
+    wait_time = extract_wait_time(message.text)
+    if wait_time is None or wait_time <= 0:
+        print(f"⚠️ زمانی در متن پیدا نشد: {message.text}")
+        return
+
+    print(f"⏳ زمان استخراج شد: {wait_time} ثانیه برای گروه {chat_id}")
+
+    # اگر قبلاً یک تایمر برای این گروه تنظیم شده، اون رو لغو کن (جلوگیری از تداخل)
+    if chat_id in pending_tasks:
+        pending_tasks[chat_id].cancel()
+        pending_tasks.pop(chat_id, None)
+
+    # تنظیم تایمر جدید برای ارسال «میو»
+    task = asyncio.create_task(send_meow_after_delay(chat_id, wait_time))
+    pending_tasks[chat_id] = task
+
+# ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات میو روشن شد...")
-    print(f"✅ گروه‌های فعال: {ALLOWED_CHATS}")
+    print("🤖 ربات میو خودکار روشن شد...")
+    print(f"📌 گروه فعال: {ALLOWED_CHATS}")
+    print(f"📌 ربات توکنی: @{TOKEN_BOT_USERNAME}")
     app.run()
