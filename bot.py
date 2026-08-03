@@ -12,7 +12,7 @@ SESSION_STRING = os.getenv("SESSION_STRING")
 ALLOWED_CHATS = [-1003998125518]  
 
 # اسم ربات توکنی که به «میو» پاسخ میده (بدون @)
-TOKEN_BOT_USERNAME = "YourTokenBotUsername"  # این رو با اسم واقعی ربات توکنی عوض کن!
+TOKEN_BOT_USERNAME = "MeowieeQBot"  # این رو با اسم واقعی ربات توکنی عوض کن!
 
 # دیکشنری برای ذخیره تسک‌های در حال اجرا (برای هر گروه)
 pending_tasks = {}
