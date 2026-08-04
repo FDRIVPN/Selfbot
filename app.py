@@ -202,7 +202,7 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات ==========
+# ========== ربات سلف‌بات (با تایمر ۳۰ ثانیه برای جلوگیری از خاموش شدن) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
@@ -248,7 +248,9 @@ async def selfbot_worker(phone):
 
         save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
+        # ========== حلقه اصلی با تایمر ۳۰ ثانیه ==========
         while selfbot_running:
+            # ارسال میو به همه گروه‌ها
             for chat_id in valid_chats:
                 if not selfbot_running:
                     break
@@ -261,11 +263,18 @@ async def selfbot_worker(phone):
                         valid_chats.remove(chat_id)
                         save_user(phone, session_string, [str(cid) for cid in valid_chats])
                         print(f"⚠️ گروه {chat_id} از لیست حذف شد")
-                await asyncio.sleep(3)
+                await asyncio.sleep(3)  # بین هر گروه
 
             if selfbot_running:
-                print("⏳ منتظر ۵ دقیقه برای میو بعدی...")
-                await asyncio.sleep(300)
+                # به جای sleep طولانی، هر ۳۰ ثانیه یکبار چک می‌کنیم و لاگ می‌زنیم
+                # تا Railway فکر کنه برنامه زنده‌ست
+                print("⏳ منتظر ۵ دقیقه برای میو بعدی... (هر ۳۰ ثانیه لاگ می‌زنم)")
+                for _ in range(10):  # ۱۰ بار * ۳۰ ثانیه = ۵ دقیقه
+                    if not selfbot_running:
+                        break
+                    print(f"⏳ ربات زنده است... ({_+1}/10) - {int((_+1)*30)} ثانیه از ۳۰۰ ثانیه")
+                    await asyncio.sleep(30)  # هر ۳۰ ثانیه یکبار لاگ بزن
+                print("⏳ ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
 
     except Exception as e:
         print(f"❌ خطا در سلف‌بات: {e}")
