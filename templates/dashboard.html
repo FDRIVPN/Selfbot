@@ -5,32 +5,368 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>پنل میو</title>
     <style>
-        body { font-family: Tahoma, sans-serif; max-width: 700px; margin: 30px auto; padding: 20px; }
-        .group-item { padding: 8px; border-bottom: 1px solid #ddd; }
-        button { background: #28a745; color: white; border: none; padding: 12px 24px; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #218838; }
-        .selected { background: #e8f5e9; }
-        .logout { background: #dc3545; }
-        .logout:hover { background: #c82333; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Vazir', 'Tahoma', sans-serif;
+            background: linear-gradient(135deg, #fdf6e3, #f5e6ca);
+            min-height: 100vh;
+            padding: 30px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .container {
+            background: #ffffff;
+            border-radius: 28px;
+            padding: 40px 38px;
+            max-width: 760px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.10), 0 8px 20px rgba(0, 0, 0, 0.06);
+            transition: transform 0.3s ease;
+        }
+
+        .container:hover {
+            transform: translateY(-4px);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-left .icon {
+            font-size: 36px;
+        }
+
+        .header-left h2 {
+            color: #3d2c1b;
+            font-weight: 700;
+            font-size: 24px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-sm {
+            padding: 8px 18px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-sm-danger {
+            background: #f5e6e0;
+            color: #b3413a;
+        }
+
+        .btn-sm-danger:hover {
+            background: #e8ccc4;
+            transform: scale(1.04);
+        }
+
+        .btn-sm-outline {
+            background: transparent;
+            color: #e8850e;
+            border: 2px solid #e8850e;
+        }
+
+        .btn-sm-outline:hover {
+            background: #e8850e;
+            color: #fff;
+            transform: scale(1.04);
+        }
+
+        .subtitle {
+            color: #8a7a6a;
+            font-size: 15px;
+            margin-bottom: 22px;
+            border-bottom: 1px solid #f0e8e0;
+            padding-bottom: 16px;
+        }
+
+        .group-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 24px;
+            padding-right: 4px;
+        }
+
+        .group-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .group-list::-webkit-scrollbar-track {
+            background: #f5f0ea;
+            border-radius: 8px;
+        }
+
+        .group-list::-webkit-scrollbar-thumb {
+            background: #e0d5c8;
+            border-radius: 8px;
+        }
+
+        .group-item {
+            display: flex;
+            align-items: center;
+            padding: 14px 16px;
+            background: #faf8f5;
+            border-radius: 16px;
+            margin-bottom: 10px;
+            transition: all 0.25s ease;
+            border: 2px solid transparent;
+            cursor: pointer;
+        }
+
+        .group-item:hover {
+            border-color: #f0e8e0;
+            background: #fcfaf8;
+        }
+
+        .group-item.selected {
+            background: #fef6ec;
+            border-color: #e8850e;
+        }
+
+        .group-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-left: 14px;
+            accent-color: #e8850e;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .group-item .info {
+            flex: 1;
+        }
+
+        .group-item .info .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #3d2c1b;
+        }
+
+        .group-item .info .meta {
+            font-size: 13px;
+            color: #a09080;
+            margin-top: 2px;
+        }
+
+        .group-item .badge {
+            background: #e8e0d8;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #6a5a4a;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .group-item.selected .badge {
+            background: #e8850e;
+            color: #fff;
+        }
+
+        .btn-save {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #e8850e, #d97706);
+            color: #ffffff;
+            border: none;
+            border-radius: 16px;
+            font-size: 20px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            margin-top: 6px;
+        }
+
+        .btn-save:hover {
+            transform: scale(1.02);
+            box-shadow: 0 8px 30px rgba(232, 133, 14, 0.35);
+        }
+
+        .btn-save:active {
+            transform: scale(0.97);
+        }
+
+        .footer-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            padding-top: 18px;
+            border-top: 1px solid #f0e8e0;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .footer-actions .status {
+            font-size: 14px;
+            color: #8a7a6a;
+        }
+
+        .footer-actions .status .dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-left: 6px;
+        }
+
+        .dot.green {
+            background: #34a853;
+        }
+
+        .dot.red {
+            background: #ea4335;
+        }
+
+        .btn-sm-secondary {
+            background: #f0e8e0;
+            color: #4a3724;
+        }
+
+        .btn-sm-secondary:hover {
+            background: #e0d5c8;
+            transform: scale(1.04);
+        }
+
+        .btn-sm-success {
+            background: #34a853;
+            color: #fff;
+        }
+
+        .btn-sm-success:hover {
+            background: #2d9248;
+            transform: scale(1.04);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #a09080;
+        }
+
+        .empty-state .big-icon {
+            font-size: 64px;
+            margin-bottom: 12px;
+        }
+
+        .empty-state h3 {
+            color: #4a3724;
+            margin-bottom: 6px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 24px 18px;
+            }
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .header-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+            .group-item {
+                padding: 12px 14px;
+                flex-wrap: wrap;
+            }
+            .group-item .badge {
+                margin-top: 4px;
+            }
+            .footer-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .footer-actions .status {
+                text-align: center;
+            }
+            .btn-save {
+                font-size: 17px;
+                padding: 14px;
+            }
+        }
     </style>
 </head>
 <body>
-    <h2>😺 پنل میو میو کردن</h2>
-    <p>گروه‌های مورد نظر برای ربات میو را انتخاب کنید:</p>
-    <form method="post" action="/save_groups">
-        {% for group in groups %}
-            <div class="group-item {% if group.id|string in selected %}selected{% endif %}">
-                <label>
-                    <input type="checkbox" name="groups" value="{{ group.id }}"
-                           {% if group.id|string in selected %}checked{% endif %}>
-                    <strong>{{ group.title }}</strong> — {{ group.members }} عضو
-                </label>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <span class="icon">😺</span>
+                <h2>پنل میو</h2>
             </div>
-        {% endfor %}
-        <br>
-        <button type="submit">💾 ذخیره تنظیمات</button>
-    </form>
-    <hr>
-    <a href="/logout"><button class="logout">🚪 خروج</button></a>
+            <div class="header-actions">
+                <a href="/stop_bot" class="btn-sm btn-sm-danger">⏹ توقف ربات</a>
+                <a href="/logout" class="btn-sm btn-sm-outline">🚪 خروج</a>
+            </div>
+        </div>
+
+        <p class="subtitle">گروه‌های مورد نظر برای ربات میو را انتخاب کنید</p>
+
+        <form method="post" action="/save_groups">
+            <div class="group-list">
+                {% if groups %}
+                    {% for group in groups %}
+                        <label class="group-item {% if group.id|string in selected %}selected{% endif %}">
+                            <input type="checkbox" name="groups" value="{{ group.id }}"
+                                   {% if group.id|string in selected %}checked{% endif %}>
+                            <div class="info">
+                                <div class="title">{{ group.title }}</div>
+                                <div class="meta">👥 {{ group.members }} عضو</div>
+                            </div>
+                            <span class="badge">{{ group.id }}</span>
+                        </label>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <div class="big-icon">📭</div>
+                        <h3>هیچ گروهی پیدا نشد</h3>
+                        <p>اکانت شما در هیچ گروهی عضو نیست یا سشن معتبر نیست.</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <button type="submit" class="btn-save">💾 ذخیره تنظیمات</button>
+        </form>
+
+        <div class="footer-actions">
+            <span class="status">
+                <span class="dot green"></span>
+                ربات: <span id="bot-status">{% if selected %}فعال{% else %}غیرفعال{% endif %}</span>
+            </span>
+            <div>
+                <a href="/" class="btn-sm btn-sm-secondary">🏠 صفحه اصلی</a>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
