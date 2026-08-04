@@ -153,7 +153,6 @@ async def send_code_async(phone):
             "hash": sent.phone_code_hash,
             "phone": phone
         }
-        print(f"✅ کد به {phone} ارسال شد")
         return sent.phone_code_hash
     except PhoneNumberInvalid:
         await client.disconnect()
@@ -299,7 +298,13 @@ async def click_button_by_text(message, keywords):
                         return False
     return False
 
-# ========== ربات سلف‌بات با no_updates=True ==========
+# ========== فیلتر سفارشی برای گروه‌های مجاز ==========
+def create_chat_filter(chat_ids):
+    async def func(flt, client, message):
+        return message.chat.id in chat_ids
+    return filters.create(func)
+
+# ========== ربات سلف‌بات با no_updates=False (پیش‌فرض) ==========
 async def selfbot_worker(phone):
     print(f"🔄 شروع selfbot_worker برای {phone}")
     while True:
@@ -318,22 +323,19 @@ async def selfbot_worker(phone):
                 await asyncio.sleep(30)
                 continue
 
-            # ========== no_updates=True برای جلوگیری از Peer id invalid ==========
+            # ========== no_updates=False (پیش‌فرض) برای دریافت پیام‌ها ==========
             client = Client(
                 f"selfbot_{phone}",
                 session_string=session_string,
                 api_id=API_ID,
                 api_hash=API_HASH,
-                in_memory=True,
-                no_updates=True
+                in_memory=True
             )
 
-            def chat_filter(chat_ids):
-                async def func(flt, client, message):
-                    return message.chat.id in chat_ids
-                return filters.create(func)
+            # فیلتر گروه‌های مجاز
+            chat_filter = create_chat_filter(chat_ids)
 
-            @client.on_message(chat_filter(chat_ids) & filters.user(BOT_USER_ID))
+            @client.on_message(chat_filter & filters.user(BOT_USER_ID))
             async def live_handler(c: Client, message: Message):
                 _, _, meow_en, fish_en, smuggle_en, _ = get_user(phone)
                 text = message.text or ""
@@ -477,7 +479,7 @@ async def selfbot_worker(phone):
             print(f"❌ [{phone}] خطای بحرانی: {e}")
             await asyncio.sleep(30)
 
-# ========== مدیریت ربات‌ها - فقط ربات‌های فعال را شروع کن ==========
+# ========== مدیریت ربات‌ها - شروع همه ربات‌های فعال ==========
 def start_all_bots():
     print("🚀 شروع همه ربات‌ها...")
     users = get_all_users()
@@ -550,14 +552,10 @@ def verify_code():
     elif isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
-        # ذخیره کاربر جدید با is_active=True
         save_user(phone, result, [], True, True, True, True)
         session['authenticated'] = True
-        # فقط ربات جدید را شروع کن، همه را ری‌استارت نکن
-        if phone not in selfbot_tasks or selfbot_tasks[phone].done():
-            task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
-            selfbot_tasks[phone] = task
-            print(f"🚀 ربات {phone} شروع شد")
+        # شروع همه ربات‌های فعال (شامل شماره جدید و شماره‌های قبلی)
+        start_all_bots()
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
@@ -576,10 +574,7 @@ def verify_password():
     elif isinstance(result, str) and len(result) > 50:
         save_user(phone, result, [], True, True, True, True)
         session['authenticated'] = True
-        if phone not in selfbot_tasks or selfbot_tasks[phone].done():
-            task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
-            selfbot_tasks[phone] = task
-            print(f"🚀 ربات {phone} شروع شد")
+        start_all_bots()
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
@@ -617,14 +612,8 @@ def save_settings():
     selected_groups = request.form.getlist('groups')
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
     
-    # مدیریت ربات بر اساس تنظیمات جدید
-    if is_active:
-        if phone not in selfbot_tasks or selfbot_tasks[phone].done():
-            task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
-            selfbot_tasks[phone] = task
-            print(f"🚀 ربات {phone} شروع شد")
-    else:
-        stop_bot(phone)
+    # شروع همه ربات‌های فعال
+    start_all_bots()
     
     return redirect(url_for('dashboard'))
 
@@ -639,13 +628,8 @@ def toggle_user():
     if session_string:
         new_status = action == 'enable'
         save_user(target_phone, session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, new_status)
-        if new_status:
-            if target_phone not in selfbot_tasks or selfbot_tasks[target_phone].done():
-                task = asyncio.run_coroutine_threadsafe(selfbot_worker(target_phone), ASYNC_LOOP)
-                selfbot_tasks[target_phone] = task
-                print(f"🚀 ربات {target_phone} شروع شد")
-        else:
-            stop_bot(target_phone)
+        # شروع همه ربات‌های فعال
+        start_all_bots()
     return redirect(url_for('dashboard'))
 
 @app.route('/remove_user', methods=['POST'])
