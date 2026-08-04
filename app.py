@@ -13,7 +13,9 @@ from pyrogram.errors import (
 )
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", os.urandom(24).hex())
+
+# ========== تنظیمات امنیتی ==========
+app.secret_key = os.getenv("SECRET_KEY", "change-this-in-production-12345")
 
 # ========== متغیرهای محیطی ==========
 API_ID = int(os.getenv("API_ID", 0))
@@ -68,8 +70,11 @@ init_db()
 executor = ThreadPoolExecutor(max_workers=4)
 
 def run_async(coro):
-    future = executor.submit(asyncio.run, coro)
-    return future.result()
+    try:
+        future = executor.submit(asyncio.run, coro)
+        return future.result(timeout=30)
+    except Exception as e:
+        return f"error: {str(e)}"
 
 # ========== توابع Pyrogram ==========
 async def send_code_async(phone):
@@ -81,55 +86,13 @@ async def send_code_async(phone):
         return sent.phone_code_hash
     except PhoneNumberInvalid:
         return None
-    finally:
-        await client.disconnect()
-
-async def sign_in_async(phone, code, phone_code_hash, password=None):
-    """ورود با استفاده از phone_code_hash دریافت شده از session"""
-    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()
-    try:
-        await client.sign_in(
-            phone_number=phone,
-            phone_code_hash=phone_code_hash,
-            phone_code=code
-        )
-    except SessionPasswordNeeded:
-        if password:
-            await client.check_password(password)
-        else:
-            return "need_password"
-    except PhoneCodeInvalid:
-        return "invalid_code"
-    except PhoneCodeExpired:
-        return "code_expired"
-    except Exception as e:
-        return f"error: {str(e)}"
-
-    session_string = await client.export_session_string()
-    await client.disconnect()
-    return session_string
-
-async def check_password_async(phone, phone_code_hash, password):
-    """بررسی رمز دوم با استفاده از hash موجود"""
-    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()
-    try:
-        # ابتدا sign_in را با کد null (که از قبل تایید شده) صدا می‌زنیم
-        # ولی روش بهتر اینه که از client موجود استفاده کنیم، اما چون کلاینت جدید می‌سازیم،
-        # باید دوباره sign_in بزنیم با کد قبلی که در session ذخیره نشده.
-        # راه‌حل: از کلاینت نگهداری کنیم، ولی برای سادگی از روش زیر استفاده می‌کنیم:
-        # ما phone_code_hash رو داریم، کد رو هم از session می‌گیریم.
-        # پس بهتره این تابع رو حذف کنیم و همه‌چیز رو در sign_in_async با پارامتر password مدیریت کنیم.
-        pass
     except Exception as e:
         return f"error: {str(e)}"
     finally:
         await client.disconnect()
 
-# برای سادگی، sign_in_async را با پارامتر password کامل می‌کنیم:
-async def sign_in_async_complete(phone, code, phone_code_hash, password=None):
-    """ورود کامل با پشتیبانی از رمز دوم"""
+async def sign_in_async(phone, phone_code_hash, code, password=None):
+    """تایید کد با استفاده از phone_code_hash"""
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
@@ -171,6 +134,8 @@ async def get_groups_async(session_string):
                     "members": dialog.chat.members_count or 0
                 })
         return groups
+    except Exception as e:
+        return f"error: {str(e)}"
     finally:
         await client.disconnect()
 
@@ -182,74 +147,89 @@ def index():
 
 @app.route('/send_code', methods=['POST'])
 def send_code_route():
-    phone = request.form.get('phone')
+    phone = request.form.get('phone', '').strip()
     if not phone:
         return "شماره موبایل الزامی است", 400
 
-    phone_code_hash = run_async(send_code_async(phone))
-    if phone_code_hash:
-        session['phone'] = phone
-        session['phone_code_hash'] = phone_code_hash
-        return render_template('code.html')
-    else:
+    result = run_async(send_code_async(phone))
+    
+    if isinstance(result, str) and result.startswith("error"):
+        return f"خطا: {result}", 500
+    elif result is None:
         return "شماره موبایل نامعتبر است", 400
+    else:
+        # result = phone_code_hash
+        session['phone'] = phone
+        session['phone_code_hash'] = result
+        session['code_sent'] = True
+        return render_template('code.html')
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
-    code = request.form.get('code')
+    code = request.form.get('code', '').strip()
     phone = session.get('phone')
     phone_code_hash = session.get('phone_code_hash')
+    code_sent = session.get('code_sent')
 
-    if not phone or not phone_code_hash:
+    if not phone or not phone_code_hash or not code_sent:
         return redirect(url_for('index'))
 
-    result = run_async(sign_in_async_complete(phone, code, phone_code_hash))
+    result = run_async(sign_in_async(phone, phone_code_hash, code))
 
     if result == "need_password":
-        # ذخیره کد در session برای مرحله بعد
-        session['temp_code'] = code
+        # کد رو توی session نگه دار برای مرحله رمز دوم
+        session['pending_code'] = code
         return render_template('password.html')
     elif result == "invalid_code":
         return "کد تایید نامعتبر است", 400
     elif result == "code_expired":
-        return "کد تایید منقضی شده است. دوباره درخواست کنید.", 400
-    elif isinstance(result, str) and not result.startswith("error") and result not in ["need_password", "invalid_code", "code_expired"]:
-        # اینجا سشن استرینگ معتبر است
+        return "کد تایید منقضی شده است. از اول شماره رو وارد کن.", 400
+    elif isinstance(result, str) and result.startswith("error"):
+        return f"خطا: {result}", 500
+    elif isinstance(result, str) and len(result) > 50 and "BA" in result:
+        # سشن استرینگ معتبر
         save_user(phone, result)
         session['session_string'] = result
-        # پاک کردن داده‌های موقت
         session.pop('phone_code_hash', None)
-        session.pop('temp_code', None)
+        session.pop('code_sent', None)
+        session.pop('pending_code', None)
         return redirect(url_for('dashboard'))
     else:
-        return f"خطا: {result}", 500
+        return f"خطای ناشناخته: {result}", 500
 
 @app.route('/verify_password', methods=['POST'])
 def verify_password():
+    password = request.form.get('password', '').strip()
     phone = session.get('phone')
     phone_code_hash = session.get('phone_code_hash')
-    code = session.get('temp_code')
-    password = request.form.get('password')
+    code = session.get('pending_code')
 
     if not phone or not phone_code_hash or not code or not password:
-        return "اطلاعات کامل نیست", 400
+        return redirect(url_for('index'))
 
-    result = run_async(sign_in_async_complete(phone, code, phone_code_hash, password))
+    result = run_async(sign_in_async(phone, phone_code_hash, code, password))
 
-    if isinstance(result, str) and not result.startswith("error") and result not in ["need_password", "invalid_code", "code_expired"]:
+    if isinstance(result, str) and result.startswith("error"):
+        return f"خطا: {result}", 500
+    elif result == "invalid_code":
+        return "کد تایید نامعتبر است", 400
+    elif result == "code_expired":
+        return "کد تایید منقضی شده است. از اول شماره رو وارد کن.", 400
+    elif isinstance(result, str) and len(result) > 50 and "BA" in result:
         save_user(phone, result)
         session['session_string'] = result
         session.pop('phone_code_hash', None)
-        session.pop('temp_code', None)
+        session.pop('code_sent', None)
+        session.pop('pending_code', None)
         return redirect(url_for('dashboard'))
     else:
-        return f"خطا: {result}", 500
+        return f"خطای ناشناخته: {result}", 500
 
 @app.route('/dashboard')
 def dashboard():
     phone = session.get('phone')
     session_string = session.get('session_string')
-
+    
     if not session_string:
         s, _ = get_user(phone)
         if s:
@@ -257,8 +237,11 @@ def dashboard():
             session['session_string'] = session_string
         else:
             return redirect(url_for('index'))
-
+    
     groups = run_async(get_groups_async(session_string))
+    if isinstance(groups, str) and groups.startswith("error"):
+        return f"خطا در دریافت گروه‌ها: {groups}", 500
+    
     _, selected = get_user(phone)
     return render_template('dashboard.html', groups=groups, selected=selected)
 
@@ -270,6 +253,11 @@ def save_groups():
         return redirect(url_for('index'))
     save_user(phone, session.get('session_string'), selected)
     return "تنظیمات با موفقیت ذخیره شد! <a href='/dashboard'>بازگشت</a>"
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
