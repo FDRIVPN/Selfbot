@@ -7,9 +7,11 @@
     <style>
         body { font-family: Tahoma, sans-serif; max-width: 700px; margin: 30px auto; padding: 20px; }
         .group-item { padding: 8px; border-bottom: 1px solid #ddd; }
-        button { background: #28a745; color: white; border: none; padding: 12px 24px; cursor: pointer; }
+        button { background: #28a745; color: white; border: none; padding: 12px 24px; cursor: pointer; border-radius: 4px; }
         button:hover { background: #218838; }
         .selected { background: #e8f5e9; }
+        .logout { background: #dc3545; }
+        .logout:hover { background: #c82333; }
     </style>
 </head>
 <body>
@@ -29,6 +31,6 @@
         <button type="submit">💾 ذخیره تنظیمات</button>
     </form>
     <hr>
-    <p><a href="/">خروج</a></p>
+    <a href="/logout"><button class="logout">🚪 خروج</button></a>
 </body>
 </html>
