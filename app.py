@@ -5,12 +5,13 @@ import asyncio
 import threading
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from flask import Flask, render_template, request, redirect, url_for, session
-from pyrogram import Client
+from pyrogram import Client, filters
+from pyrogram.types import Message
 from pyrogram.enums import ChatType
 from pyrogram.errors import (
     PhoneNumberInvalid,
     PhoneCodeInvalid,
-    PhoneCodeExpired,
+   PhoneCodeExpired,
     SessionPasswordNeeded,
     PeerIdInvalid
 )
@@ -81,7 +82,6 @@ threading.Thread(
 ).start()
 
 def run_async(coro, timeout=120):
-    """برای توابع غیرحلقه‌ای (لاگین، دریافت گروه‌ها) با تایم‌اوت"""
     future = asyncio.run_coroutine_threadsafe(coro, ASYNC_LOOP)
     try:
         return future.result(timeout=timeout)
@@ -91,7 +91,7 @@ def run_async(coro, timeout=120):
     except Exception as e:
         return f"error: {str(e)}"
 
-# ========== دیکشنری برای نگهداری Clientهای فعال ==========
+# ========== متغیرهای سراسری ==========
 active_clients = {}
 selfbot_running = False
 selfbot_lock = threading.Lock()
@@ -203,9 +203,8 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== توابع کمکی برای کلیک روی دکمه ==========
+# ========== تابع کمکی برای کلیک روی دکمه ==========
 async def click_button(message, button_text):
-    """پیدا کردن دکمه با متن مشخص و کلیک کردن روی اون"""
     if not message.reply_markup:
         return False
     for row in message.reply_markup.inline_keyboard:
@@ -215,7 +214,7 @@ async def click_button(message, button_text):
                 return True
     return False
 
-# ========== ربات سلف‌بات با قابلیت‌های میو، پیشی و قاچاق ==========
+# ========== ربات سلف‌بات با هندلر داخلی ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
@@ -245,6 +244,52 @@ async def selfbot_worker(phone):
                 no_updates=True
             )
 
+            # ========== هندلر پیام‌های ربات توکنی ==========
+            @client.on_message(filters.group & filters.regex(r'(میو پوینت|پیشی|قاچاق|دریافت دستمزد)'))
+            async def token_bot_handler(c: Client, message: Message):
+                # فقط گروه‌های مجاز
+                if message.chat.id not in chat_ids:
+                    return
+                if not message.from_user or not message.from_user.is_bot:
+                    return
+
+                text = message.text
+
+                # میو پوینت - فقط لاگ
+                if "میو پوینت" in text:
+                    print(f"📝 جواب میو دریافت شد: {text[:50]}...")
+
+                # پیشی - کلیک روی دکمه برداشت میوپوینت
+                if "پیشی" in text and "برداشت میوپوینت" in text:
+                    clicked = await click_button(message, "برداشت میوپوینت")
+                    if clicked:
+                        print(f"✅ دکمه برداشت میوپوینت کلیک شد")
+                    else:
+                        print(f"⚠️ دکمه برداشت میوپوینت پیدا نشد")
+
+                # قاچاق میویی - کلیک روی دکمه شروع قاچاق
+                if "قاچاق" in text and "شروع قاچاق میویی" in text:
+                    clicked = await click_button(message, "شروع قاچاق میویی")
+                    if clicked:
+                        print(f"✅ دکمه شروع قاچاق کلیک شد")
+                    else:
+                        print(f"⚠️ دکمه شروع قاچاق پیدا نشد")
+
+                # دریافت دستمزد - کلیک روی دکمه تایید
+                if "دریافت دستمزد" in text:
+                    clicked = await click_button(message, "دریافت دستمزد")
+                    if clicked:
+                        print(f"✅ دکمه دریافت دستمزد کلیک شد")
+                    else:
+                        # دکمه با اسم دیگه
+                        if message.reply_markup:
+                            for row in message.reply_markup.inline_keyboard:
+                                for btn in row:
+                                    if "تایید" in btn.text or "دریافت" in btn.text:
+                                        await btn.click()
+                                        print(f"✅ دکمه {btn.text} کلیک شد")
+                                        break
+
             try:
                 await client.start()
                 print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
@@ -264,21 +309,20 @@ async def selfbot_worker(phone):
 
                 save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
-                # ========== حلقه اصلی با چک مداوم selfbot_running ==========
+                # ========== حلقه اصلی ==========
                 while True:
                     if not selfbot_running:
                         print("⏸️ ربات در حالت توقف است، منتظر فعال شدن...")
                         await asyncio.sleep(5)
                         continue
 
-                    # 1. ارسال میو به همه گروه‌ها (هر ۵ دقیقه)
+                    # ۱. ارسال میو
                     for chat_id in valid_chats:
                         if not selfbot_running:
                             break
                         try:
-                            msg = await client.send_message(chat_id, "میو")
+                            await client.send_message(chat_id, "میو")
                             print(f"✅ میو به گروه {chat_id} ارسال شد")
-                            # منتظر جواب ربات (هندلر بعدی انجام میده)
                             await asyncio.sleep(3)
                         except Exception as e:
                             print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
@@ -287,40 +331,35 @@ async def selfbot_worker(phone):
                                 save_user(phone, session_string, [str(cid) for cid in valid_chats])
                                 print(f"⚠️ گروه {chat_id} از لیست حذف شد")
 
-                    # 2. ارسال پیشی (هر ۷ دقیقه)
+                    # ۲. ارسال پیشی (هر ۷ دقیقه)
                     for chat_id in valid_chats:
                         if not selfbot_running:
                             break
                         try:
-                            msg = await client.send_message(chat_id, "پیشی")
+                            await client.send_message(chat_id, "پیشی")
                             print(f"🐱 پیشی به گروه {chat_id} ارسال شد")
                             await asyncio.sleep(2)
-                            # هندلر کلیک روی دکمه برداشت میوپوینت انجام میده
                         except Exception as e:
                             print(f"❌ خطا در ارسال پیشی به {chat_id}: {e}")
 
-                    # 3. قاچاق میویی (هر ۱ ساعت)
+                    # ۳. قاچاق میویی (هر ۱ ساعت)
                     for chat_id in valid_chats:
                         if not selfbot_running:
                             break
                         try:
-                            # مرحله ۱: ارسال «قاچاق میویی»
-                            msg = await client.send_message(chat_id, "قاچاق میویی")
+                            await client.send_message(chat_id, "قاچاق میویی")
                             print(f"📦 قاچاق میویی به گروه {chat_id} ارسال شد")
                             await asyncio.sleep(2)
-                            # کلیک روی دکمه «شروع قاچاق میویی» توسط هندلر انجام میشه
 
-                            # مرحله ۲: منتظر ۱ ساعت برای دریافت دستمزد
-                            await asyncio.sleep(3600)  # ۱ ساعت
+                            # منتظر ۱ ساعت
+                            await asyncio.sleep(3600)
 
                             if not selfbot_running:
                                 break
 
-                            # مرحله ۳: ارسال «قاچاق میویی دریافت دستمزد»
-                            msg2 = await client.send_message(chat_id, "قاچاق میویی دریافت دستمزد")
+                            await client.send_message(chat_id, "قاچاق میویی دریافت دستمزد")
                             print(f"💰 دستمزد قاچاق به گروه {chat_id} درخواست شد")
                             await asyncio.sleep(2)
-                            # کلیک روی دکمه تایید توسط هندلر انجام میشه
 
                         except Exception as e:
                             print(f"❌ خطا در قاچاق میویی به {chat_id}: {e}")
@@ -346,51 +385,6 @@ async def selfbot_worker(phone):
             print(f"❌ خطای بحرانی در حلقه اصلی: {e}")
             await asyncio.sleep(30)
             continue
-
-# ========== هندلر پیام‌های ربات توکنی ==========
-@app.on_message(filters.group & filters.regex(r'(میو پوینت|پیشی|قاچاق|دریافت دستمزد)'))
-async def handle_token_bot_reply(client, message):
-    chat_id = message.chat.id
-    if chat_id not in ALLOWED_CHATS:
-        return
-    if not message.from_user or not message.from_user.is_bot:
-        return
-
-    text = message.text
-
-    # میو پوینت - تایمر توسط خود ربات توکنی مدیریت میشه
-    if "میو پوینت" in text:
-        print(f"📝 جواب میو دریافت شد: {text[:50]}...")
-
-    # پیشی - کلیک روی دکمه برداشت میوپوینت
-    if "پیشی" in text and "برداشت میوپوینت" in text:
-        clicked = await click_button(message, "برداشت میوپوینت")
-        if clicked:
-            print(f"✅ دکمه برداشت میوپوینت کلیک شد")
-        else:
-            print(f"⚠️ دکمه برداشت میوپوینت پیدا نشد")
-
-    # قاچاق میویی - کلیک روی دکمه شروع قاچاق
-    if "قاچاق" in text and "شروع قاچاق میویی" in text:
-        clicked = await click_button(message, "شروع قاچاق میویی")
-        if clicked:
-            print(f"✅ دکمه شروع قاچاق کلیک شد")
-        else:
-            print(f"⚠️ دکمه شروع قاچاق پیدا نشد")
-
-    # دریافت دستمزد - کلیک روی دکمه تایید
-    if "دریافت دستمزد" in text:
-        clicked = await click_button(message, "دریافت دستمزد")
-        if clicked:
-            print(f"✅ دکمه دریافت دستمزد کلیک شد")
-        else:
-            # ممکنه دکمه با اسم دیگه‌ای باشه
-            for row in message.reply_markup.inline_keyboard:
-                for btn in row:
-                    if "تایید" in btn.text or "دریافت" in btn.text:
-                        await btn.click()
-                        print(f"✅ دکمه {btn.text} کلیک شد")
-                        break
 
 # ========== شروع و توقف ربات ==========
 def start_selfbot(phone):
