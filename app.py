@@ -11,7 +11,8 @@ from pyrogram.errors import (
     PhoneNumberInvalid,
     PhoneCodeInvalid,
     PhoneCodeExpired,
-    SessionPasswordNeeded
+    SessionPasswordNeeded,
+    PeerIdInvalid
 )
 
 app = Flask(__name__)
@@ -23,8 +24,8 @@ API_HASH = os.getenv("API_HASH", "")
 if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
-# ========== دیتابیس ==========
-DB_DIR = "data"
+# ========== دیتابیس در مسیر دائمی ==========
+DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
 if not os.path.exists(DB_DIR):
     os.makedirs(DB_DIR)
@@ -201,28 +202,24 @@ async def get_groups_async(session_string):
 
 # ========== ربات سلف‌بات (ارسال میو) ==========
 async def selfbot_worker(phone):
-    """کارگر ربات سلف‌بات - در پس‌زمینه اجرا میشه"""
     global selfbot_running
-    
-    # دریافت سشن و گروه‌ها از دیتابیس
+
     session_string, selected_groups = get_user(phone)
     if not session_string or not selected_groups:
         print("❌ سشن یا گروه‌ها پیدا نشد")
         selfbot_running = False
         return
 
-    # تبدیل گروه‌های انتخابی به لیست اعداد
+    # تبدیل به لیست عددی
     try:
         chat_ids = [int(g) for g in selected_groups]
     except:
         chat_ids = []
-
     if not chat_ids:
         print("❌ هیچ گروهی انتخاب نشده")
         selfbot_running = False
         return
 
-    # ساخت کلاینت
     client = Client(
         "selfbot",
         session_string=session_string,
@@ -235,24 +232,10 @@ async def selfbot_worker(phone):
     try:
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
-        
-        # اعتبارسنجی گروه‌ها
-        valid_chats = []
-        for chat_id in chat_ids:
-            try:
-                chat = await client.get_chat(chat_id)
-                valid_chats.append(chat_id)
-                print(f"✅ گروه {chat_id} معتبر است")
-            except Exception as e:
-                print(f"❌ گروه {chat_id} معتبر نیست: {e}")
-        
-        if not valid_chats:
-            print("❌ هیچ گروه معتبری وجود ندارد")
-            selfbot_running = False
-            return
-        
+
+        # بدون اعتبارسنجی قبلی، مستقیم پیام می‌فرستیم
         while selfbot_running:
-            for chat_id in valid_chats:
+            for chat_id in chat_ids:
                 if not selfbot_running:
                     break
                 try:
@@ -260,11 +243,17 @@ async def selfbot_worker(phone):
                     print(f"✅ میو به گروه {chat_id} ارسال شد")
                 except Exception as e:
                     print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-                await asyncio.sleep(3)  # بین هر گروه ۳ ثانیه فاصله
-            
+                    # اگر خطای PeerIdInvalid بود، گروه رو غیرفعال کن
+                    if "Peer id invalid" in str(e):
+                        print(f"⚠️ گروه {chat_id} نامعتبر است، از لیست حذف می‌شود")
+                        chat_ids.remove(chat_id)
+                        # به‌روزرسانی دیتابیس بدون گروه نامعتبر
+                        save_user(phone, session_string, [str(cid) for cid in chat_ids])
+                await asyncio.sleep(3)  # فاصله بین گروه‌ها
+
             if selfbot_running:
-                await asyncio.sleep(300)  # ۵ دقیقه = ۳۰۰ ثانیه
-                
+                await asyncio.sleep(300)  # ۵ دقیقه
+
     except Exception as e:
         print(f"❌ خطا در سلف‌بات: {e}")
     finally:
@@ -276,13 +265,10 @@ async def selfbot_worker(phone):
         print("🛑 ربات سلف‌بات متوقف شد")
 
 def start_selfbot(phone):
-    """شروع ربات سلف‌بات در یک ترد جداگانه"""
     global selfbot_running, selfbot_thread
-    
     if selfbot_running:
         print("⚠️ ربات از قبل روشن است")
         return
-    
     selfbot_running = True
     selfbot_thread = threading.Thread(
         target=lambda: run_async(selfbot_worker(phone)),
@@ -292,7 +278,6 @@ def start_selfbot(phone):
     print("🚀 ربات سلف‌بات شروع شد")
 
 def stop_selfbot():
-    """متوقف کردن ربات سلف‌بات"""
     global selfbot_running
     selfbot_running = False
     print("🛑 توقف ربات درخواست شد")
@@ -392,10 +377,10 @@ def save_groups():
 
     selected = request.form.getlist('groups')
     save_user(phone, session_string, selected)
-    
+
     # شروع ربات سلف‌بات بعد از ذخیره گروه‌ها
     start_selfbot(phone)
-    
+
     return redirect(url_for('dashboard'))
 
 @app.route('/stop_bot')
