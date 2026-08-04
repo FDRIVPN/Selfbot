@@ -200,7 +200,7 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (ارسال میو) ==========
+# ========== ربات سلف‌بات (ارسال میو با get_dialogs) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
@@ -232,22 +232,24 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
 
-        # اعتبارسنجی گروه‌ها با get_chat
+        # دریافت لیست دیالوگ‌ها و پیدا کردن گروه‌های معتبر
         valid_chats = []
-        for chat_id in chat_ids:
-            try:
-                chat = await client.get_chat(chat_id)
-                valid_chats.append(chat_id)
-                print(f"✅ گروه {chat_id} ({chat.title}) معتبر است")
-            except Exception as e:
-                print(f"❌ گروه {chat_id} نامعتبر است: {e}")
+        async for dialog in client.get_dialogs():
+            if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+                if str(dialog.chat.id) in [str(cid) for cid in chat_ids]:
+                    valid_chats.append(dialog.chat.id)
+                    print(f"✅ گروه {dialog.chat.id} ({dialog.chat.title}) پیدا شد")
 
         if not valid_chats:
-            print("❌ هیچ گروه معتبری وجود ندارد")
+            print("❌ هیچ گروه معتبری پیدا نشد")
+            print("📋 گروه‌های موجود در اکانت:")
+            async for dialog in client.get_dialogs():
+                if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+                    print(f"   - {dialog.chat.id} | {dialog.chat.title}")
             selfbot_running = False
             return
 
-        # ذخیره گروه‌های معتبر در دیتابیس
+        # ذخیره گروه‌های معتبر در دیتابیس (فقط گروه‌های پیدا شده)
         save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
         while selfbot_running:
@@ -259,10 +261,6 @@ async def selfbot_worker(phone):
                     print(f"✅ میو به گروه {chat_id} ارسال شد")
                 except Exception as e:
                     print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-                    if "Peer id invalid" in str(e) or "USER_NOT_PARTICIPANT" in str(e):
-                        valid_chats.remove(chat_id)
-                        save_user(phone, session_string, [str(cid) for cid in valid_chats])
-                        print(f"⚠️ گروه {chat_id} از لیست حذف شد")
                 await asyncio.sleep(3)
 
             if selfbot_running:
