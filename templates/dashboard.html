@@ -22,6 +22,8 @@
         .btn-sm-success:hover{background:#2d9248}
         .btn-sm-secondary{background:#f0e8e0;color:#4a3724}
         .btn-sm-secondary:hover{background:#e0d5c8}
+        .btn-sm-primary{background:#e8850e;color:#fff}
+        .btn-sm-primary:hover{background:#d97706}
         .subtitle{color:#8a7a6a;font-size:15px;margin-bottom:22px;border-bottom:1px solid #f0e8e0;padding-bottom:16px}
         .section{margin-bottom:30px}
         .section-title{font-size:18px;font-weight:700;color:#3d2c1b;margin-bottom:12px}
@@ -53,11 +55,13 @@
         .users-table tr:hover{background:#fcfaf8}
         .badge-active{background:#34a853;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
         .badge-inactive{background:#ea4335;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
-        .btn-xs{padding:4px 12px;border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;text-decoration:none;display:inline-block}
+        .btn-xs{padding:4px 12px;border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;text-decoration:none;display:inline-block; margin:1px;}
         .btn-xs-success{background:#34a853;color:#fff}
         .btn-xs-success:hover{background:#2d9248}
         .btn-xs-danger{background:#ea4335;color:#fff}
         .btn-xs-danger:hover{background:#c62828}
+        .btn-xs-primary{background:#e8850e;color:#fff}
+        .btn-xs-primary:hover{background:#d97706}
         .add-user-box{background:#faf8f5;border-radius:16px;padding:16px;margin-top:16px;border:2px dashed #e0d5c8}
         .add-user-box input{padding:10px 14px;border:2px solid #ede5d8;border-radius:12px;font-size:14px;background:#fff;outline:none;width:200px}
         .add-user-box input:focus{border-color:#e8850e}
@@ -78,9 +82,9 @@
                 <h2>پنل مدیریت میو</h2>
             </div>
             <div class="header-actions">
-                <span style="font-size:14px;color:#8a7a6a;">📱 {{ phone }}</span>
-                <a href="/stop_bot" class="btn-sm btn-sm-danger">⏹ توقف ربات من</a>
-                <a href="/logout" class="btn-sm btn-sm-outline">🚪 خروج</a>
+                <span style="font-size:14px;color:#8a7a6a;">📱 مدیریت: {{ managed_phone }}</span>
+                <a href="/stop_bot" class="btn-sm btn-sm-danger">⏹ توقف ربات این حساب</a>
+                <a href="/logout" class="btn-sm btn-sm-outline">🚪 خروج کامل</a>
             </div>
         </div>
 
@@ -111,6 +115,14 @@
                         <td>{% if user.meow_enabled %}✅{% else %}❌{% endif %}</td>
                         <td>{% if user.fish_enabled %}✅{% else %}❌{% endif %}</td>
                         <td>
+                            <!-- دکمه سوییچ / مدیریت -->
+                            {% if user.phone != managed_phone %}
+                            <a href="/switch_user/{{ user.phone }}" class="btn-xs btn-xs-primary">🔄 مدیریت</a>
+                            {% else %}
+                            <span class="btn-xs" style="background:#f0e8e0;color:#3d2c1b;">✅ جاری</span>
+                            {% endif %}
+
+                            <!-- فعال/غیرفعال -->
                             <form method="post" action="/toggle_user" style="display:inline;">
                                 <input type="hidden" name="phone" value="{{ user.phone }}">
                                 {% if user.is_active %}
@@ -119,7 +131,9 @@
                                     <button type="submit" name="action" value="enable" class="btn-xs btn-xs-success">فعال</button>
                                 {% endif %}
                             </form>
-                            {% if user.phone != phone %}
+
+                            <!-- حذف (به‌جز حساب جاری لاگین) -->
+                            {% if user.phone != session.get('phone') %}
                             <form method="post" action="/remove_user" style="display:inline;">
                                 <input type="hidden" name="phone" value="{{ user.phone }}">
                                 <button type="submit" class="btn-xs btn-xs-danger" onclick="return confirm('حذف شود؟')">🗑️</button>
@@ -137,9 +151,9 @@
             </div>
         </div>
 
-        <!-- ===== تنظیمات کاربر فعلی ===== -->
+        <!-- ===== تنظیمات حساب تحت مدیریت ===== -->
         <div class="section">
-            <div class="section-title">⚙️ تنظیمات {{ phone }}</div>
+            <div class="section-title">⚙️ تنظیمات {{ managed_phone }}</div>
             <form method="post" action="/save_settings">
                 <!-- گروه‌ها -->
                 <p style="font-weight:600;color:#3d2c1b;margin-bottom:8px;">📋 گروه‌های انتخاب‌شده:</p>
@@ -192,7 +206,7 @@
         <div class="footer-actions">
             <span class="status">
                 <span class="dot {% if is_active %}green{% else %}red{% endif %}"></span>
-                ربات: {% if is_active %}فعال{% else %}غیرفعال{% endif %}
+                ربات این حساب: {% if is_active %}فعال{% else %}غیرفعال{% endif %}
             </span>
             <div>
                 <a href="/" class="btn-sm btn-sm-secondary">🏠 صفحه اصلی</a>
@@ -200,4 +214,4 @@
         </div>
     </div>
 </body>
-</html>
+    </html>
