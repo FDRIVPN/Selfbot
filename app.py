@@ -25,10 +25,14 @@ if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
 # ========== دیتابیس در مسیر دائمی ==========
-DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
+# استفاده از مسیر مطلق /app/data که باید Volume داشته باشه
+DB_DIR = "/app/data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
+
+# اگر پوشه وجود نداره، بساز
 if not os.path.exists(DB_DIR):
-    os.makedirs(DB_DIR)
+    os.makedirs(DB_DIR, exist_ok=True)
+    print(f"📁 پوشه {DB_DIR} ساخته شد")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -42,6 +46,7 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+    print(f"✅ دیتابیس در {DB_PATH} آماده شد")
 
 def save_user(phone, session_string, selected_groups=None):
     conn = sqlite3.connect(DB_PATH)
@@ -52,6 +57,7 @@ def save_user(phone, session_string, selected_groups=None):
     )
     conn.commit()
     conn.close()
+    print(f"💾 اطلاعات کاربر {phone} ذخیره شد")
 
 def get_user(phone):
     conn = sqlite3.connect(DB_PATH)
@@ -200,13 +206,18 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (ارسال میو با get_dialogs) ==========
+# ========== ربات سلف‌بات (ارسال میو) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
     session_string, selected_groups = get_user(phone)
-    if not session_string or not selected_groups:
-        print("❌ سشن یا گروه‌ها پیدا نشد")
+    if not session_string:
+        print(f"❌ سشن برای {phone} پیدا نشد")
+        selfbot_running = False
+        return
+
+    if not selected_groups:
+        print(f"❌ هیچ گروهی برای {phone} انتخاب نشده")
         selfbot_running = False
         return
 
@@ -232,7 +243,7 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
 
-        # دریافت لیست دیالوگ‌ها و پیدا کردن گروه‌های معتبر
+        # پیدا کردن گروه‌ها از دیالوگ‌ها
         valid_chats = []
         async for dialog in client.get_dialogs():
             if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -241,7 +252,7 @@ async def selfbot_worker(phone):
                     print(f"✅ گروه {dialog.chat.id} ({dialog.chat.title}) پیدا شد")
 
         if not valid_chats:
-            print("❌ هیچ گروه معتبری پیدا نشد")
+            print("❌ هیچ گروه انتخاب‌شده‌ای در اکانت پیدا نشد")
             print("📋 گروه‌های موجود در اکانت:")
             async for dialog in client.get_dialogs():
                 if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -249,7 +260,7 @@ async def selfbot_worker(phone):
             selfbot_running = False
             return
 
-        # ذخیره گروه‌های معتبر در دیتابیس (فقط گروه‌های پیدا شده)
+        # ذخیره گروه‌های معتبر
         save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
         while selfbot_running:
