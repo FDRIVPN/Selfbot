@@ -12,11 +12,8 @@ from pyrogram.errors import (
 )
 
 app = Flask(__name__)
-
-# ========== تنظیمات امنیتی ==========
 app.secret_key = os.getenv("SECRET_KEY", "change-this-in-production-12345")
 
-# ========== متغیرهای محیطی ==========
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 
@@ -26,7 +23,6 @@ if not API_ID or not API_HASH:
 # ========== دیتابیس ==========
 DB_DIR = "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
-
 if not os.path.exists(DB_DIR):
     os.makedirs(DB_DIR)
 
@@ -65,22 +61,24 @@ def get_user(phone):
 
 init_db()
 
-# ========== دیکشنری برای نگهداری Clientهای فعال ==========
-# { phone: {"client": Client, "hash": str, "lock": asyncio.Lock} }
-active_clients = {}
+# ========== یک Event Loop ثابت برای کل برنامه ==========
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
-# ========== اجرای async در Flask ==========
 def run_async(coro):
-    """اجرای یک تابع async و برگرداندن نتیجه"""
+    """اجرای تابع async روی حلقهٔ رویداد ثابت"""
     try:
-        return asyncio.run(coro)
+        return loop.run_until_complete(coro)
     except Exception as e:
         return f"error: {str(e)}"
 
-# ========== توابع Pyrogram (با Client مشترک) ==========
+# ========== دیکشنری برای نگهداری Clientهای فعال ==========
+active_clients = {}
+
+# ========== توابع Pyrogram (با مدیریت دقیق Client) ==========
 async def send_code_async(phone):
-    """ارسال کد و ذخیره Client در دیکشنری برای مراحل بعد"""
-    # اگر قبلاً کلاینتی برای این شماره هست، اون رو disconnect کن
+    """ارسال کد و ذخیره Client برای مراحل بعد"""
+    # پاک کردن کلاینت قبلی (در صورت وجود)
     if phone in active_clients:
         try:
             await active_clients[phone]["client"].disconnect()
@@ -92,7 +90,6 @@ async def send_code_async(phone):
     await client.connect()
     try:
         sent = await client.send_code(phone)
-        # ذخیره Client و hash در دیکشنری
         active_clients[phone] = {
             "client": client,
             "hash": sent.phone_code_hash
@@ -100,9 +97,11 @@ async def send_code_async(phone):
         return sent.phone_code_hash
     except PhoneNumberInvalid:
         await client.disconnect()
+        active_clients.pop(phone, None)
         return None
     except Exception as e:
         await client.disconnect()
+        active_clients.pop(phone, None)
         return f"error: {str(e)}"
 
 async def sign_in_async(phone, code):
@@ -120,13 +119,13 @@ async def sign_in_async(phone, code):
             phone_code_hash=phone_code_hash,
             phone_code=code
         )
-        # لاگین موفق - سشن رو بگیر
         session_string = await client.export_session_string()
+        # لاگین موفق - disconnect و پاک کردن
         await client.disconnect()
-        active_clients.pop(phone, None)  # پاک کردن از دیکشنری
+        active_clients.pop(phone, None)
         return session_string
     except SessionPasswordNeeded:
-        # رمز دوم لازمه - کلاینت رو نگه دار، فقط وضعیت رو برگردون
+        # رمز دوم لازمه - Client رو نگه دار
         return "need_password"
     except PhoneCodeInvalid:
         await client.disconnect()
@@ -197,7 +196,6 @@ def send_code_route():
     elif result is None:
         return "شماره موبایل نامعتبر است", 400
     else:
-        # result = phone_code_hash
         session['phone'] = phone
         return render_template('code.html')
 
@@ -220,7 +218,6 @@ def verify_code():
     elif isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
-        # سشن استرینگ معتبر
         save_user(phone, result)
         session['session_string'] = result
         return redirect(url_for('dashboard'))
@@ -277,11 +274,10 @@ def save_groups():
 
 @app.route('/logout')
 def logout():
-    # پاک کردن Client فعال
     phone = session.get('phone')
     if phone and phone in active_clients:
         try:
-            asyncio.run(active_clients[phone]["client"].disconnect())
+            loop.run_until_complete(active_clients[phone]["client"].disconnect())
         except:
             pass
         active_clients.pop(phone, None)
