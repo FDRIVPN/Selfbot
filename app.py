@@ -26,10 +26,8 @@ API_HASH = os.getenv("API_HASH", "")
 if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
-# ========== شناسه ربات توکنی ==========
 BOT_USER_ID = 8299996037
 
-# ========== دیتابیس ==========
 DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
 if not os.path.exists(DB_DIR):
@@ -111,7 +109,6 @@ def delete_user(phone):
 init_db()
 print(f"✅ دیتابیس در {DB_PATH} آماده شد")
 
-# ========== Event Loop دائمی ==========
 ASYNC_LOOP = asyncio.new_event_loop()
 
 def _async_loop_worker():
@@ -134,13 +131,11 @@ def run_async(coro, timeout=120):
     except Exception as e:
         return f"error: {str(e)}"
 
-# ========== متغیرهای سراسری ==========
 pending_clients = {}
 selfbot_tasks = {}
 meow_timers = {}
-smuggle_timers = {}  # برای ذخیره زمان پایان قاچاق
+smuggle_timers = {}
 
-# ========== توابع Pyrogram برای لاگین ==========
 async def send_code_async(phone):
     if phone in pending_clients:
         try:
@@ -247,9 +242,7 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== توابع کمکی ربات ==========
 def extract_meow_time(text):
-    """استخراج زمان از پاسخ میو"""
     match = re.search(r'(\d+)\s*[:：]\s*(\d+)', text)
     if match:
         return int(match.group(1)) * 60 + int(match.group(2))
@@ -264,24 +257,27 @@ def extract_meow_time(text):
         return int(match.group(1))
     return None
 
-def extract_smuggle_time(text):
-    """استخراج زمان از پاسخ قاچاق (مشابه میو)"""
-    return extract_meow_time(text)  # فعلاً همان منطق
-
 async def click_first_button(message):
-    """کلیک روی اولین دکمه (ردیف اول، ستون اول)"""
     if not message.reply_markup:
+        print("⚠️ پیام دکمه ندارد")
         return False
     try:
-        await message.click(0, 0)
-        print(f"✅ کلیک روی اولین دکمه انجام شد")
+        print(f"🔍 تعداد ردیف‌ها: {len(message.reply_markup.inline_keyboard)}")
+        for i, row in enumerate(message.reply_markup.inline_keyboard):
+            print(f"   ردیف {i}: {[btn.text for btn in row]}")
+        
+        first_button = message.reply_markup.inline_keyboard[0][0]
+        await first_button.click()
+        print(f"✅ کلیک روی اولین دکمه انجام شد: {first_button.text}")
         return True
+    except IndexError:
+        print("⚠️ هیچ دکمه‌ای در ردیف اول وجود ندارد")
+        return False
     except Exception as e:
         print(f"❌ خطا در کلیک روی دکمه: {e}")
         return False
 
 async def click_button_by_text(message, keywords):
-    """کلیک روی دکمه‌ای که شامل یکی از کلمات کلیدی باشد"""
     if not message.reply_markup:
         return False
     if isinstance(keywords, str):
@@ -294,12 +290,11 @@ async def click_button_by_text(message, keywords):
                         await btn.click()
                         print(f"✅ کلیک روی دکمه '{btn.text}' انجام شد")
                         return True
-                    except Exception as e:
-                        print(f"❌ خطا: {e}")
+                    except:
                         return False
     return False
 
-# ========== ربات سلف‌بات (نسخه نهایی) ==========
+# ========== ربات سلف‌بات ==========
 async def selfbot_worker(phone):
     print(f"🔄 شروع selfbot_worker برای {phone}")
     while True:
@@ -326,46 +321,52 @@ async def selfbot_worker(phone):
                 in_memory=True
             )
 
-            # ========== هندلر زنده (با خواندن لحظه‌ای تنظیمات) ==========
-            @client.on_message(filters.group & filters.user(BOT_USER_ID))
+            # ========== فیلتر سفارشی برای گروه‌های مجاز ==========
+            def chat_filter(chat_ids):
+                async def func(flt, client, message):
+                    return message.chat.id in chat_ids
+                return filters.create(func)
+
+            # ========== هندلر زنده ==========
+            @client.on_message(chat_filter(chat_ids) & filters.user(BOT_USER_ID))
             async def live_handler(c: Client, message: Message):
-                # خواندن تنظیمات لحظه‌ای
                 _, selected_groups_now, meow_en, fish_en, smuggle_en, is_active_now = get_user(phone)
                 if not is_active_now:
                     return
-                try:
-                    chat_ids_now = [int(g) for g in selected_groups_now]
-                except:
-                    return
-                if message.chat.id not in chat_ids_now:
-                    return
 
-                text = message.text or message.caption or ""
+                text = message.text or ""
                 print(f"📩 [{phone}] پیام زنده: {text[:100]}")
 
-                # ===== میو =====
+                # میو
                 if meow_en and "میو پوینت" in text and "بعد از" in text:
                     wait_time = extract_meow_time(text)
                     if wait_time and wait_time > 0:
                         meow_timers[f"{phone}_{message.chat.id}"] = wait_time
                         print(f"⏱️ [{phone}] تایم میو ثبت شد: {wait_time} ثانیه")
 
-                # ===== پیشی =====
+                # پیشی
                 if fish_en and "پیشی" in text:
-                    print(f"🐱 [{phone}] کلیک روی دکمه پیشی...")
-                    await click_first_button(message)
+                    print(f"🐱 [{phone}] تلاش برای کلیک روی دکمه پیشی...")
+                    if message.reply_markup:
+                        print(f"🔍 [{phone}] تعداد ردیف‌ها: {len(message.reply_markup.inline_keyboard)}")
+                        for i, row in enumerate(message.reply_markup.inline_keyboard):
+                            print(f"   ردیف {i}: {[btn.text for btn in row]}")
+                    else:
+                        print(f"⚠️ [{phone}] پیام دکمه ندارد")
+                    clicked = await click_first_button(message)
+                    if clicked:
+                        print(f"✅ [{phone}] کلیک روی اولین دکمه انجام شد")
+                    else:
+                        print(f"❌ [{phone}] کلیک روی دکمه انجام نشد")
 
-                # ===== قاچاق =====
+                # قاچاق
                 if smuggle_en and "قاچاق" in text:
                     if "شروع قاچاق میویی" in text:
                         print(f"📦 [{phone}] کلیک شروع قاچاق...")
                         await click_button_by_text(message, ["شروع قاچاق", "شروع"])
-                    elif "دریافت دستمزد" in text or "دستمزد" in text:
+                    elif "دریافت دستمزد" in text:
                         print(f"💰 [{phone}] کلیک دریافت دستمزد...")
-                        if not await click_button_by_text(message, ["دریافت دستمزد", "دستمزد", "تایید"]):
-                            print(f"⚠️ دکمه دریافت دستمزد پیدا نشد")
-                    elif "زندان" in text or "جریمه" in text:
-                        print(f"🚨 [{phone}] پیام زندان/جریمه دریافت شد!")
+                        await click_button_by_text(message, ["دریافت دستمزد", "تایید"])
 
             try:
                 await client.start()
@@ -453,32 +454,13 @@ async def selfbot_worker(phone):
                             try:
                                 await client.send_message(chat_id, "قاچاق میویی")
                                 print(f"📦 [{phone}] قاچاق میویی به {chat_id} ارسال شد")
-                                timer_key = f"{phone}_{chat_id}"
-                                # منتظر پاسخ ربات و استخراج زمان
-                                for _ in range(15):
+                                await asyncio.sleep(5)
+                                
+                                for _ in range(3600 // 10):
                                     _, _, _, _, _, is_active_now2 = get_user(phone)
                                     if not is_active_now2:
                                         break
-                                    if timer_key in smuggle_timers:
-                                        wait = smuggle_timers.pop(timer_key)
-                                        print(f"⏱️ [{phone}] زمان قاچاق: {wait} ثانیه")
-                                        while wait > 0:
-                                            _, _, _, _, _, is_active_now3 = get_user(phone)
-                                            if not is_active_now3:
-                                                break
-                                            sleep_time = min(wait, 10)
-                                            await asyncio.sleep(sleep_time)
-                                            wait -= sleep_time
-                                        break
-                                    await asyncio.sleep(1)
-                                else:
-                                    # اگر زمان دریافت نشد، ۱ ساعت پیش‌فرض
-                                    print(f"⏳ [{phone}] زمان قاچاق مشخص نشد، ۱ ساعت صبر...")
-                                    for _ in range(3600 // 10):
-                                        _, _, _, _, _, is_active_now4 = get_user(phone)
-                                        if not is_active_now4:
-                                            break
-                                        await asyncio.sleep(10)
+                                    await asyncio.sleep(10)
 
                                 if not get_user(phone)[5]:
                                     break
@@ -492,7 +474,6 @@ async def selfbot_worker(phone):
                                 await asyncio.sleep(60)
                         await asyncio.sleep(5)
 
-                # ========== شروع حلقه‌ها ==========
                 tasks = [
                     asyncio.create_task(meow_loop()),
                     asyncio.create_task(fish_loop()),
@@ -534,6 +515,8 @@ def start_all_bots():
                 print(f"🚀 شروع ربات برای {phone}")
                 task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
                 selfbot_tasks[phone] = task
+            else:
+                print(f"ℹ️ ربات {phone} در حال اجراست")
 
 def stop_all_bots():
     for phone in list(selfbot_tasks.keys()):
@@ -641,7 +624,7 @@ def save_settings():
     phone = session.get('phone')
     if not phone or not session.get('authenticated'):
         return redirect(url_for('index'))
-    session_string, selected, _, _, _, _ = get_user(phone)
+    session_string, _, _, _, _, _ = get_user(phone)
     if not session_string:
         return redirect(url_for('index'))
     meow_enabled = request.form.get('meow_enabled') == 'on'
@@ -650,8 +633,11 @@ def save_settings():
     is_active = request.form.get('is_active') == 'on'
     selected_groups = request.form.getlist('groups')
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
-    stop_all_bots()
+    
+    # فقط ربات جاری رو ری‌استارت کن
+    stop_bot(phone)
     start_all_bots()
+    
     return redirect(url_for('dashboard'))
 
 @app.route('/toggle_user', methods=['POST'])
@@ -666,7 +652,10 @@ def toggle_user():
         new_status = action == 'enable'
         save_user(target_phone, session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, new_status)
         if new_status:
-            start_all_bots()
+            if target_phone not in selfbot_tasks or selfbot_tasks[target_phone].done():
+                print(f"🚀 شروع ربات {target_phone}")
+                task = asyncio.run_coroutine_threadsafe(selfbot_worker(target_phone), ASYNC_LOOP)
+                selfbot_tasks[target_phone] = task
         else:
             stop_bot(target_phone)
     return redirect(url_for('dashboard'))
