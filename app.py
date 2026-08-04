@@ -6,22 +6,37 @@ import json
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'
 
-# اطلاعات API تلگرام (از my.telegram.org)
-API_ID = 20032812  # عدد واقعی رو بذار
-API_HASH = "04a865813d96a6f3ff4134bae6f3df7e"  # هش واقعی رو بذار
+# ==================== دریافت همه تنظیمات از متغیرهای محیطی ====================
+API_ID = int(os.environ.get('API_ID', 0))
+API_HASH = os.environ.get('API_HASH', '')
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+
+# بررسی وجود اطلاعات ضروری
+if API_ID == 0 or not API_HASH:
+    print("\n⚠️  خطا: API_ID و API_HASH را در محیط (Environment) ست کنید!")
+    print("مثال برای لینوکس/ترمینال:")
+    print("export API_ID=12345")
+    print("export API_HASH=your_hash_here")
+    print("سپس دوباره برنامه را اجرا کنید.\n")
+    exit(1)
+
+if not SECRET_KEY:
+    print("\n⚠️  هشدار: SECRET_KEY در محیط ست نشده! یک کلید تصادفی موقت ساخته شد.")
+    print("برای ساخت کلید دائمی، از دستور زیر استفاده کن:")
+    print("python -c 'import os; print(os.urandom(24).hex())'")
+    print("سپس: export SECRET_KEY='کلید_ساخته_شده'\n")
+    SECRET_KEY = os.urandom(24).hex()  # ساخت کلید موقت
+
+app.secret_key = SECRET_KEY
 
 # دیکشنری برای نگهداری کلاینت‌های فعال
 active_clients = {}
-
-# دیکشنری برای نگهداری کوکی‌های مرورگر
 sessions = {}
 
 # ==================== توابع کمکی ====================
 
 def load_sessions():
-    """بارگذاری سشن‌ها از فایل"""
     global sessions
     if os.path.exists('sessions.json'):
         with open('sessions.json', 'r') as f:
@@ -30,19 +45,17 @@ def load_sessions():
         sessions = {}
 
 def save_sessions():
-    """ذخیره سشن‌ها در فایل"""
     with open('sessions.json', 'w') as f:
         json.dump(sessions, f)
 
-# ==================== تابع اصلی ارسال کد (تغییر داده شده) ====================
+# ==================== تابع اصلی ارسال کد (بدون قطع کردن) ====================
 
 async def send_code_async(phone, proxy=None):
     try:
-        # فقط کلاینت قبلی رو از حافظه حذف کن (بدون قطع کردن)
+        # فقط کلاینت قبلی رو از حافظه حذف کن (قطع نمی‌کنه)
         if phone in active_clients:
             active_clients.pop(phone, None)
         
-        # ساخت کلاینت جدید
         client = Client(
             f"sessions/{phone}",
             api_id=API_ID,
@@ -52,7 +65,6 @@ async def send_code_async(phone, proxy=None):
         
         await client.connect()
         
-        # اگر قبلاً احراز هویت شده، مستقیم وارد شو
         if await client.is_user_authorized():
             active_clients[phone] = {
                 "client": client,
@@ -60,7 +72,6 @@ async def send_code_async(phone, proxy=None):
             }
             return {"status": "authorized", "phone": phone}
         
-        # درخواست کد تایید
         sent_code = await client.send_code(phone)
         active_clients[phone] = {
             "client": client,
@@ -71,8 +82,6 @@ async def send_code_async(phone, proxy=None):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# ==================== تابع تایید کد ====================
-
 async def sign_in_async(phone, code):
     try:
         if phone not in active_clients:
@@ -81,10 +90,8 @@ async def sign_in_async(phone, code):
         client = active_clients[phone]["client"]
         phone_code_hash = active_clients[phone]["phone_code_hash"]
         
-        # تلاش برای ورود با کد
         await client.sign_in(phone, code, phone_code_hash)
         
-        # ذخیره سشن در کوکی
         sessions[phone] = {
             "logged_in": True,
             "time": datetime.now().isoformat()
@@ -99,7 +106,6 @@ async def sign_in_async(phone, code):
 
 @app.route('/')
 def index():
-    """صفحه اصلی"""
     phone = request.cookies.get('phone')
     logged_in = request.cookies.get('logged_in')
     
@@ -109,15 +115,13 @@ def index():
 
 @app.route('/send_code', methods=['POST'])
 def send_code():
-    """ارسال کد تایید"""
-    data = request.get_json()
+    data = request.get_json(force=True)
     phone = data.get('phone')
-    proxy = data.get('proxy')  # اختیاری
+    proxy = data.get('proxy')
     
     if not phone:
         return jsonify({"status": "error", "message": "شماره تلفن الزامی است"})
     
-    # اجرای تابع async
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(send_code_async(phone, proxy))
@@ -127,15 +131,13 @@ def send_code():
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
-    """تایید کد"""
-    data = request.get_json()
+    data = request.get_json(force=True)
     phone = data.get('phone')
     code = data.get('code')
     
     if not phone or not code:
         return jsonify({"status": "error", "message": "شماره و کد الزامی است"})
     
-    # اجرای تابع async
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(sign_in_async(phone, code))
@@ -143,7 +145,7 @@ def verify_code():
     
     if result["status"] == "success":
         resp = make_response(jsonify(result))
-        resp.set_cookie('phone', phone, max_age=60*60*24*30)  # 30 روز
+        resp.set_cookie('phone', phone, max_age=60*60*24*30)
         resp.set_cookie('logged_in', 'true', max_age=60*60*24*30)
         return resp
     
@@ -151,25 +153,22 @@ def verify_code():
 
 @app.route('/logout', methods=['POST'])
 def logout():
-    """خروج از حساب (بدون قطع کردن کلاینت)"""
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
         phone = data.get('phone')
         
         if not phone:
             return jsonify({"status": "error", "message": "شماره تلفن ارسال نشده"})
         
-        # فقط کلاینت رو از حافظه حذف کن (بدون قطع کردن)
+        # فقط از حافظه حذف کن (قطع نمی‌کنه)
         if phone in active_clients:
             active_clients.pop(phone, None)
         
-        # حذف از سشن‌ها
         if phone in sessions:
             sessions.pop(phone, None)
             save_sessions()
         
-        # پاک کردن کوکی مرورگر
-        resp = make_response(jsonify({"status": "success", "message": "خروج با موفقیت انجام شد"}))
+        resp = make_response(jsonify({"status": "success", "message": "خروج موفق"}))
         resp.set_cookie('phone', '', expires=0)
         resp.set_cookie('logged_in', '', expires=0)
         
@@ -179,7 +178,6 @@ def logout():
 
 @app.route('/get_clients', methods=['GET'])
 def get_clients():
-    """دریافت لیست کلاینت‌های فعال"""
     clients_list = []
     for phone, data in active_clients.items():
         clients_list.append({
@@ -190,22 +188,17 @@ def get_clients():
 
 @app.route('/status')
 def status():
-    """وضعیت سیستم"""
     return jsonify({
         "active_clients": len(active_clients),
         "sessions": len(sessions),
         "status": "running"
     })
 
-# ==================== اجرای برنامه ====================
+# ==================== اجرا ====================
 
 if __name__ == '__main__':
-    # ایجاد پوشه سشن‌ها
     if not os.path.exists('sessions'):
         os.makedirs('sessions')
     
-    # بارگذاری سشن‌ها
     load_sessions()
-    
-    # اجرای سرور
     app.run(host='0.0.0.0', port=5000, debug=True)
