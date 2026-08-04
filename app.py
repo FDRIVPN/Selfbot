@@ -14,14 +14,12 @@ from pyrogram.errors import (
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# ========== متغیرهای محیطی ==========
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 
 if not API_ID or not API_HASH:
     raise ValueError("API_ID و API_HASH باید در Railway تنظیم شوند")
 
-# ========== دیتابیس (در /tmp برای Railway) ==========
 DB_PATH = "/tmp/users.db"
 
 def init_db():
@@ -59,7 +57,6 @@ def get_user(phone):
 
 init_db()
 
-# ========== توابع کمکی ==========
 def run_async(coro):
     try:
         loop = asyncio.new_event_loop()
@@ -68,10 +65,11 @@ def run_async(coro):
     finally:
         loop.close()
 
-# ========== توابع Pyrogram ==========
+# ========== توابع Pyrogram اصلاح‌شده ==========
 async def send_code_async(phone):
+    """ارسال کد تایید بدون نیاز به ورودی از خط فرمان"""
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()
+    await client.connect()  # فقط connect، نه start()
     try:
         await client.send_code(phone)
         return True
@@ -81,10 +79,12 @@ async def send_code_async(phone):
         await client.disconnect()
 
 async def sign_in_async(phone, code, password=None):
+    """ورود با کد تایید و رمز دوم (اختیاری) - استفاده از named arguments"""
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
-        await client.sign_in(phone, code)
+        # ✅ استفاده از named arguments برای جلوگیری از خطای missing argument
+        await client.sign_in(phone_number=phone, phone_code=code)
     except SessionPasswordNeeded:
         if password:
             await client.check_password(password)
@@ -102,9 +102,10 @@ async def sign_in_async(phone, code, password=None):
     return session_string
 
 async def get_groups_async(session_string):
+    """دریافت لیست گروه‌ها با سشن استرینگ"""
     client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
+    await client.start()  # اینجا می‌تونیم start کنیم چون سشن داریم
     try:
-        await client.start()
         groups = []
         async for dialog in client.get_dialogs():
             if dialog.chat.type in ["group", "supergroup"]:
