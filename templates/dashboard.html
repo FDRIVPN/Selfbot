@@ -15,7 +15,6 @@
 <body>
     <h2>😺 پنل میو میو کردن</h2>
     <p>گروه‌های مورد نظر برای ربات میو را انتخاب کنید:</p>
-
     <form method="post" action="/save_groups">
         {% for group in groups %}
             <div class="group-item {% if group.id|string in selected %}selected{% endif %}">
@@ -29,7 +28,6 @@
         <br>
         <button type="submit">💾 ذخیره تنظیمات</button>
     </form>
-
     <hr>
     <p><a href="/">خروج</a></p>
 </body>
