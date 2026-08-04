@@ -265,7 +265,6 @@ async def click_first_button(message):
         print(f"🔍 تعداد ردیف‌ها: {len(message.reply_markup.inline_keyboard)}")
         for i, row in enumerate(message.reply_markup.inline_keyboard):
             print(f"   ردیف {i}: {[btn.text for btn in row]}")
-        
         first_button = message.reply_markup.inline_keyboard[0][0]
         await first_button.click()
         print(f"✅ کلیک روی اولین دکمه انجام شد: {first_button.text}")
@@ -321,13 +320,11 @@ async def selfbot_worker(phone):
                 in_memory=True
             )
 
-            # ========== فیلتر سفارشی برای گروه‌های مجاز ==========
             def chat_filter(chat_ids):
                 async def func(flt, client, message):
                     return message.chat.id in chat_ids
                 return filters.create(func)
 
-            # ========== هندلر زنده ==========
             @client.on_message(chat_filter(chat_ids) & filters.user(BOT_USER_ID))
             async def live_handler(c: Client, message: Message):
                 _, selected_groups_now, meow_en, fish_en, smuggle_en, is_active_now = get_user(phone)
@@ -337,14 +334,12 @@ async def selfbot_worker(phone):
                 text = message.text or ""
                 print(f"📩 [{phone}] پیام زنده: {text[:100]}")
 
-                # میو
                 if meow_en and "میو پوینت" in text and "بعد از" in text:
                     wait_time = extract_meow_time(text)
                     if wait_time and wait_time > 0:
                         meow_timers[f"{phone}_{message.chat.id}"] = wait_time
                         print(f"⏱️ [{phone}] تایم میو ثبت شد: {wait_time} ثانیه")
 
-                # پیشی
                 if fish_en and "پیشی" in text:
                     print(f"🐱 [{phone}] تلاش برای کلیک روی دکمه پیشی...")
                     if message.reply_markup:
@@ -359,7 +354,6 @@ async def selfbot_worker(phone):
                     else:
                         print(f"❌ [{phone}] کلیک روی دکمه انجام نشد")
 
-                # قاچاق
                 if smuggle_en and "قاچاق" in text:
                     if "شروع قاچاق میویی" in text:
                         print(f"📦 [{phone}] کلیک شروع قاچاق...")
@@ -384,7 +378,6 @@ async def selfbot_worker(phone):
                     await asyncio.sleep(30)
                     continue
 
-                # ========== حلقه میو ==========
                 async def meow_loop():
                     while True:
                         _, _, meow_en_now, _, _, is_active_now = get_user(phone)
@@ -423,7 +416,6 @@ async def selfbot_worker(phone):
                                 await asyncio.sleep(60)
                         await asyncio.sleep(5)
 
-                # ========== حلقه پیشی ==========
                 async def fish_loop():
                     while True:
                         _, _, _, fish_en_now, _, is_active_now = get_user(phone)
@@ -443,7 +435,6 @@ async def selfbot_worker(phone):
                                 break
                             await asyncio.sleep(10)
 
-                # ========== حلقه قاچاق ==========
                 async def smuggle_loop():
                     while True:
                         _, _, _, _, smuggle_en_now, is_active_now = get_user(phone)
@@ -455,20 +446,16 @@ async def selfbot_worker(phone):
                                 await client.send_message(chat_id, "قاچاق میویی")
                                 print(f"📦 [{phone}] قاچاق میویی به {chat_id} ارسال شد")
                                 await asyncio.sleep(5)
-                                
                                 for _ in range(3600 // 10):
                                     _, _, _, _, _, is_active_now2 = get_user(phone)
                                     if not is_active_now2:
                                         break
                                     await asyncio.sleep(10)
-
                                 if not get_user(phone)[5]:
                                     break
-
                                 await client.send_message(chat_id, "قاچاق میویی دریافت دستمزد")
                                 print(f"💰 [{phone}] دستمزد قاچاق به {chat_id} درخواست شد")
                                 await asyncio.sleep(5)
-
                             except Exception as e:
                                 print(f"❌ [{phone}] خطا در قاچاق: {e}")
                                 await asyncio.sleep(60)
@@ -515,19 +502,18 @@ def start_all_bots():
                 print(f"🚀 شروع ربات برای {phone}")
                 task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
                 selfbot_tasks[phone] = task
-            else:
-                print(f"ℹ️ ربات {phone} در حال اجراست")
 
 def stop_all_bots():
     for phone in list(selfbot_tasks.keys()):
         if not selfbot_tasks[phone].done():
-            save_user(phone, "", [], True, True, True, False)
+            selfbot_tasks[phone].cancel()
     selfbot_tasks.clear()
     print("🛑 همه ربات‌ها متوقف شدند")
 
 def stop_bot(phone):
+    # فقط تسک رو لغو کن، is_active رو تغییر نده
     if phone in selfbot_tasks and not selfbot_tasks[phone].done():
-        save_user(phone, "", [], True, True, True, False)
+        selfbot_tasks[phone].cancel()
         selfbot_tasks.pop(phone, None)
         print(f"🛑 ربات {phone} متوقف شد")
 
@@ -634,9 +620,14 @@ def save_settings():
     selected_groups = request.form.getlist('groups')
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
     
-    # فقط ربات جاری رو ری‌استارت کن
-    stop_bot(phone)
-    start_all_bots()
+    # مدیریت شروع/توقف ربات بر اساس تنظیمات جدید
+    if is_active:
+        if phone not in selfbot_tasks or selfbot_tasks[phone].done():
+            task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
+            selfbot_tasks[phone] = task
+            print(f"🚀 ربات {phone} شروع شد")
+    else:
+        stop_bot(phone)
     
     return redirect(url_for('dashboard'))
 
@@ -653,9 +644,9 @@ def toggle_user():
         save_user(target_phone, session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, new_status)
         if new_status:
             if target_phone not in selfbot_tasks or selfbot_tasks[target_phone].done():
-                print(f"🚀 شروع ربات {target_phone}")
                 task = asyncio.run_coroutine_threadsafe(selfbot_worker(target_phone), ASYNC_LOOP)
                 selfbot_tasks[target_phone] = task
+                print(f"🚀 ربات {target_phone} شروع شد")
         else:
             stop_bot(target_phone)
     return redirect(url_for('dashboard'))
