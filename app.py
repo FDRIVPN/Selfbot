@@ -25,14 +25,10 @@ if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
 # ========== دیتابیس در مسیر دائمی ==========
-# استفاده از مسیر مطلق /app/data که باید Volume داشته باشه
 DB_DIR = "/app/data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
-
-# اگر پوشه وجود نداره، بساز
 if not os.path.exists(DB_DIR):
-    os.makedirs(DB_DIR, exist_ok=True)
-    print(f"📁 پوشه {DB_DIR} ساخته شد")
+    os.makedirs(DB_DIR)
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -46,7 +42,6 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
-    print(f"✅ دیتابیس در {DB_PATH} آماده شد")
 
 def save_user(phone, session_string, selected_groups=None):
     conn = sqlite3.connect(DB_PATH)
@@ -70,6 +65,7 @@ def get_user(phone):
     return None, []
 
 init_db()
+print(f"✅ دیتابیس در {DB_PATH} آماده شد")
 
 # ========== Event Loop دائمی ==========
 ASYNC_LOOP = asyncio.new_event_loop()
@@ -206,18 +202,13 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (ارسال میو) ==========
+# ========== ربات سلف‌بات (همیشه روشن) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
     session_string, selected_groups = get_user(phone)
-    if not session_string:
-        print(f"❌ سشن برای {phone} پیدا نشد")
-        selfbot_running = False
-        return
-
-    if not selected_groups:
-        print(f"❌ هیچ گروهی برای {phone} انتخاب نشده")
+    if not session_string or not selected_groups:
+        print("❌ سشن یا گروه‌ها پیدا نشد")
         selfbot_running = False
         return
 
@@ -243,7 +234,7 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
 
-        # پیدا کردن گروه‌ها از دیالوگ‌ها
+        # اعتبارسنجی گروه‌ها از دیالوگ‌ها
         valid_chats = []
         async for dialog in client.get_dialogs():
             if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -252,17 +243,14 @@ async def selfbot_worker(phone):
                     print(f"✅ گروه {dialog.chat.id} ({dialog.chat.title}) پیدا شد")
 
         if not valid_chats:
-            print("❌ هیچ گروه انتخاب‌شده‌ای در اکانت پیدا نشد")
-            print("📋 گروه‌های موجود در اکانت:")
-            async for dialog in client.get_dialogs():
-                if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-                    print(f"   - {dialog.chat.id} | {dialog.chat.title}")
+            print("❌ هیچ گروه معتبری پیدا نشد")
             selfbot_running = False
             return
 
-        # ذخیره گروه‌های معتبر
+        # ذخیره گروه‌های معتبر در دیتابیس
         save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
+        # ========== حلقه بی‌نهایت (همیشه روشن) ==========
         while selfbot_running:
             for chat_id in valid_chats:
                 if not selfbot_running:
@@ -272,20 +260,28 @@ async def selfbot_worker(phone):
                     print(f"✅ میو به گروه {chat_id} ارسال شد")
                 except Exception as e:
                     print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-                await asyncio.sleep(3)
+                    # اگر خطای نامعتبر بود، گروه رو حذف کن
+                    if "Peer id invalid" in str(e) or "USER_NOT_PARTICIPANT" in str(e):
+                        valid_chats.remove(chat_id)
+                        save_user(phone, session_string, [str(cid) for cid in valid_chats])
+                        print(f"⚠️ گروه {chat_id} از لیست حذف شد")
+                await asyncio.sleep(3)  # فاصله بین گروه‌ها
 
             if selfbot_running:
+                print("⏳ منتظر ۵ دقیقه برای میو بعدی...")
                 await asyncio.sleep(300)  # ۵ دقیقه
 
     except Exception as e:
         print(f"❌ خطا در سلف‌بات: {e}")
     finally:
+        # فقط اگر selfbot_running هنوز True باشه، False کن (برای توقف دستی)
+        if selfbot_running:
+            selfbot_running = False
+            print("🛑 ربات سلف‌بات متوقف شد")
         try:
             await client.stop()
         except:
             pass
-        selfbot_running = False
-        print("🛑 ربات سلف‌بات متوقف شد")
 
 def start_selfbot(phone):
     global selfbot_running, selfbot_thread
