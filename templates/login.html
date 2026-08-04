@@ -5,22 +5,158 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ورود به پنل میو</title>
     <style>
-        body { font-family: Tahoma, sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; }
-        input, button { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; }
-        button { background: #0088cc; color: white; border: none; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #006699; }
-        .error { color: red; }
+        /* ===== Reset ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Vazir', 'Tahoma', sans-serif;
+            background: linear-gradient(135deg, #fdf6e3, #f5e6ca);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: #ffffff;
+            border-radius: 24px;
+            padding: 40px 36px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.10), 0 8px 20px rgba(0, 0, 0, 0.06);
+            transition: transform 0.3s ease;
+        }
+
+        .container:hover {
+            transform: translateY(-4px);
+        }
+
+        .logo {
+            text-align: center;
+            font-size: 52px;
+            margin-bottom: 8px;
+            line-height: 1;
+        }
+
+        h2 {
+            text-align: center;
+            color: #3d2c1b;
+            font-weight: 700;
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #8a7a6a;
+            font-size: 14px;
+            margin-bottom: 28px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a3724;
+            margin-bottom: 6px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #ede5d8;
+            border-radius: 14px;
+            font-size: 16px;
+            background: #faf8f5;
+            transition: border 0.3s, box-shadow 0.3s;
+            outline: none;
+            font-family: inherit;
+        }
+
+        input:focus {
+            border-color: #e8850e;
+            box-shadow: 0 0 0 4px rgba(232, 133, 14, 0.15);
+            background: #ffffff;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #e8850e, #d97706);
+            color: #ffffff;
+            border: none;
+            border-radius: 14px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            letter-spacing: 0.3px;
+        }
+
+        .btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 8px 25px rgba(232, 133, 14, 0.35);
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .footer-text {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #b0a090;
+        }
+
+        .footer-text a {
+            color: #e8850e;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .footer-text a:hover {
+            text-decoration: underline;
+        }
+
+        /* responsive */
+        @media (max-width: 480px) {
+            .container {
+                padding: 28px 20px;
+            }
+            h2 {
+                font-size: 20px;
+            }
+        }
     </style>
 </head>
 <body>
-    <h2>🔐 ورود به پنل میو</h2>
-    {% if error %}
-        <p class="error">{{ error }}</p>
-    {% endif %}
-    <form method="post" action="/send_code">
-        <label>شماره موبایل (با کد کشور):</label>
-        <input type="text" name="phone" placeholder="مثال: 989031774645" required>
-        <button type="submit">ارسال کد تایید</button>
-    </form>
+    <div class="container">
+        <div class="logo">🐱</div>
+        <h2>🔐 ورود به پنل میو</h2>
+        <p class="subtitle">با شماره تلگرام خود وارد شوید</p>
+
+        <form method="post" action="/send_code">
+            <div class="form-group">
+                <label>📱 شماره موبایل (با کد کشور)</label>
+                <input type="text" name="phone" placeholder="مثال: 989031774645" required>
+            </div>
+            <button type="submit" class="btn">ارسال کد تایید</button>
+        </form>
+
+        <div class="footer-text">
+            <span>ربات میو • 🐾</span>
+        </div>
+    </div>
 </body>
 </html>
