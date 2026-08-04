@@ -26,6 +26,9 @@ API_HASH = os.getenv("API_HASH", "")
 if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
+# ========== تنظیمات ربات توکنی ==========
+BOT_USER_ID = 8299996037  # شناسه عددی ربات توکنی
+
 # ========== دیتابیس ==========
 DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
@@ -96,7 +99,7 @@ def run_async(coro, timeout=120):
 active_clients = {}
 selfbot_running = False
 selfbot_lock = threading.Lock()
-meow_timers = {}  # {chat_id: seconds_remaining} برای ذخیره تایم میو
+meow_timers = {}
 
 # ========== توابع Pyrogram ==========
 async def send_code_async(phone):
@@ -205,56 +208,47 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== تابع استخراج زمان از متن میو ==========
+# ========== توابع کمکی ==========
 def extract_meow_time(text):
-    """
-    استخراج زمان از پاسخ ربات توکنی برای دستور میو
-    مثال‌ها:
-    - "بعد از 4:25 میتونی دوباره میو میو کنی"
-    - "⏳ بعد از ۴:۲۵ میتونی دوباره میو میو کنی"
-    - "بعد از 5 دقیقه"
-    - "بعد از 30 ثانیه"
-    برمی‌گردونه: تعداد ثانیه‌ها (int) یا None
-    """
-    # الگوی دقیقه:ثانیه (با اعداد فارسی یا انگلیسی)
     match = re.search(r'(\d+)\s*[:：]\s*(\d+)', text)
     if match:
-        minutes = int(match.group(1))
-        seconds = int(match.group(2))
-        return minutes * 60 + seconds
-
-    # الگوی "X دقیقه و Y ثانیه"
+        return int(match.group(1)) * 60 + int(match.group(2))
     match = re.search(r'(\d+)\s*دقیقه\s*و\s*(\d+)\s*ثانیه', text)
     if match:
-        minutes = int(match.group(1))
-        seconds = int(match.group(2))
-        return minutes * 60 + seconds
-
-    # الگوی "X دقیقه"
+        return int(match.group(1)) * 60 + int(match.group(2))
     match = re.search(r'(\d+)\s*دقیقه', text)
     if match:
         return int(match.group(1)) * 60
-
-    # الگوی "X ثانیه"
     match = re.search(r'(\d+)\s*ثانیه', text)
     if match:
         return int(match.group(1))
-
     return None
 
-# ========== تابع کلیک روی اولین دکمه ==========
-async def click_first_button(message):
-    """کلیک روی اولین دکمه از بالا (برای برداشت میوپوینت در پیشی)"""
+# ========== تابع جدید برای کلیک روی دکمه برداشت ==========
+async def click_harvest_button(message):
+    """
+    پیدا کردن دکمه‌ای که شامل کلمات 'برداشت' یا 'میوپوینت' یا 'میو پیوند' باشد و کلیک کند
+    """
     if not message.reply_markup:
+        print("⚠️ پیام دکمه ندارد")
         return False
-    try:
-        # اولین دکمه از اولین ردیف
-        btn = message.reply_markup.inline_keyboard[0][0]
-        await btn.click()
-        return True
-    except Exception as e:
-        print(f"⚠️ خطا در کلیک روی اولین دکمه: {e}")
-        return False
+    
+    keywords = ["برداشت", "میوپوینت", "میو پیوند", "برداشت میو"]
+    
+    for row in message.reply_markup.inline_keyboard:
+        for btn in row:
+            for kw in keywords:
+                if kw in btn.text:
+                    try:
+                        await btn.click()
+                        print(f"✅ کلیک روی دکمه '{btn.text}' انجام شد")
+                        return True
+                    except Exception as e:
+                        print(f"❌ خطا در کلیک روی دکمه '{btn.text}': {e}")
+                        return False
+    
+    print(f"⚠️ هیچ دکمه‌ای با کلمات {keywords} پیدا نشد")
+    return False
 
 # ========== ربات سلف‌بات ==========
 async def selfbot_worker(phone):
@@ -287,33 +281,35 @@ async def selfbot_worker(phone):
             )
 
             # ========== هندلر پیام‌های ربات توکنی ==========
-            @client.on_message(filters.group & filters.regex(r'(میو پوینت|پیشی|میو پیوند)'))
+            @client.on_message(filters.group & filters.regex(r'(میو پوینت|پیشی|میو پیوند|برداشت)'))
             async def token_bot_handler(c: Client, message: Message):
                 if message.chat.id not in chat_ids:
                     return
-                if not message.from_user or not message.from_user.is_bot:
+                if not message.from_user or message.from_user.id != BOT_USER_ID:
+                    return
+                if not message.from_user.is_bot:
                     return
 
                 text = message.text
+                print(f"📩 پیام از ربات توکنی دریافت شد: {text[:50]}...")
 
-                # ===== پردازش میو: استخراج تایم =====
+                # ===== میو: استخراج تایم =====
                 if "میو پوینت" in text and "بعد از" in text:
                     wait_time = extract_meow_time(text)
                     if wait_time and wait_time > 0:
-                        # ذخیره تایم برای گروه مربوطه
                         meow_timers[message.chat.id] = wait_time
                         print(f"⏱️ تایم میو برای گروه {message.chat.id}: {wait_time} ثانیه")
                     else:
                         print(f"⚠️ تایم میو پیدا نشد در: {text[:50]}...")
 
-                # ===== پردازش پیشی: کلیک روی اولین دکمه =====
+                # ===== پیشی: کلیک روی دکمه برداشت =====
                 if "پیشی" in text:
-                    # کلیک روی اولین دکمه (برداشت)
-                    clicked = await click_first_button(message)
+                    print(f"🐱 پیام پیشی دریافت شد، در حال کلیک روی دکمه برداشت...")
+                    clicked = await click_harvest_button(message)
                     if clicked:
-                        print(f"✅ کلیک روی اولین دکمه برای پیشی انجام شد")
+                        print(f"✅ کلیک روی دکمه برداشت انجام شد")
                     else:
-                        print(f"⚠️ هیچ دکمه‌ای برای پیشی پیدا نشد")
+                        print(f"⚠️ دکمه برداشت پیدا نشد")
 
             try:
                 await client.start()
@@ -334,7 +330,7 @@ async def selfbot_worker(phone):
 
                 save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
-                # ========== وظیفه ۱: حلقه میو (با تایم متغیر) ==========
+                # ========== حلقه میو ==========
                 async def meow_loop():
                     while True:
                         if not selfbot_running:
@@ -348,30 +344,30 @@ async def selfbot_worker(phone):
                                 await client.send_message(chat_id, "میو")
                                 print(f"😺 میو به گروه {chat_id} ارسال شد")
                                 
-                                # منتظر جواب ربات (حداکثر ۱۰ ثانیه)
                                 for _ in range(10):
                                     if chat_id in meow_timers:
                                         wait = meow_timers.pop(chat_id)
                                         print(f"⏱️ تایم میو برای {chat_id}: {wait} ثانیه")
-                                        # صبر به اندازه تایم
-                                        for _ in range(wait // 10):
+                                        while wait > 0:
                                             if not selfbot_running:
                                                 break
-                                            await asyncio.sleep(10)
-                                        if wait % 10 != 0:
-                                            await asyncio.sleep(wait % 10)
+                                            sleep_time = min(wait, 10)
+                                            await asyncio.sleep(sleep_time)
+                                            wait -= sleep_time
                                         break
                                     await asyncio.sleep(1)
                                 else:
-                                    # اگر تایم نیومد، ۵ دقیقه پیش‌فرض
                                     print(f"⚠️ تایم میو برای {chat_id} پیدا نشد، ۵ دقیقه صبر می‌کنم...")
-                                    await asyncio.sleep(300)
+                                    for _ in range(300 // 10):
+                                        if not selfbot_running:
+                                            break
+                                        await asyncio.sleep(10)
 
                             except Exception as e:
                                 print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
                                 await asyncio.sleep(60)
 
-                # ========== وظیفه ۲: حلقه پیشی (هر ۱۰ دقیقه) ==========
+                # ========== حلقه پیشی ==========
                 async def fish_loop():
                     while True:
                         if not selfbot_running:
@@ -382,13 +378,13 @@ async def selfbot_worker(phone):
                             if not selfbot_running:
                                 break
                             try:
-                                await client.send_message(chat_id, "پیشی")
+                                msg = await client.send_message(chat_id, "پیشی")
                                 print(f"🐱 پیشی به گروه {chat_id} ارسال شد")
-                                await asyncio.sleep(5)  # صبر برای جواب ربات و کلیک
+                                # صبر برای دریافت جواب ربات
+                                await asyncio.sleep(5)
                             except Exception as e:
                                 print(f"❌ خطا در ارسال پیشی به {chat_id}: {e}")
 
-                        # هر ۱۰ دقیقه یکبار
                         for _ in range(600 // 10):
                             if not selfbot_running:
                                 break
@@ -400,16 +396,13 @@ async def selfbot_worker(phone):
                     asyncio.create_task(fish_loop())
                 ]
 
-                # منتظر بمان تا ربات متوقف شود
                 while selfbot_running:
                     await asyncio.sleep(5)
 
-                # لغو تسک‌ها
                 for t in tasks:
                     t.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-                # توقف کلاینت
                 await client.stop()
                 print("🛑 ربات سلف‌بات متوقف شد")
 
@@ -428,7 +421,6 @@ async def selfbot_worker(phone):
             await asyncio.sleep(30)
             continue
 
-# ========== شروع و توقف ربات ==========
 def start_selfbot(phone):
     global selfbot_running
     with selfbot_lock:
