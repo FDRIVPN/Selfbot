@@ -25,7 +25,7 @@ if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
 # ========== دیتابیس در مسیر دائمی ==========
-DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
+DB_DIR = "/app/data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
 if not os.path.exists(DB_DIR):
     os.makedirs(DB_DIR)
@@ -200,7 +200,7 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (ارسال میو) ==========
+# ========== ربات سلف‌بات (ارسال میو با get_chat اول) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
@@ -210,7 +210,6 @@ async def selfbot_worker(phone):
         selfbot_running = False
         return
 
-    # تبدیل به لیست عددی
     try:
         chat_ids = [int(g) for g in selected_groups]
     except:
@@ -233,23 +232,37 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
 
-        # بدون اعتبارسنجی قبلی، مستقیم پیام می‌فرستیم
+        # اعتبارسنجی گروه‌ها با get_chat (برای ذخیره در کش کلاینت)
+        valid_chats = []
+        for chat_id in chat_ids:
+            try:
+                chat = await client.get_chat(chat_id)
+                valid_chats.append(chat_id)
+                print(f"✅ گروه {chat_id} ({chat.title}) معتبر است")
+            except PeerIdInvalid:
+                print(f"❌ گروه {chat_id} نامعتبر است (PeerIdInvalid)")
+            except Exception as e:
+                print(f"❌ گروه {chat_id} نامعتبر است: {e}")
+
+        if not valid_chats:
+            print("❌ هیچ گروه معتبری وجود ندارد")
+            selfbot_running = False
+            return
+
+        # ذخیره گروه‌های معتبر در دیتابیس
+        save_user(phone, session_string, [str(cid) for cid in valid_chats])
+
         while selfbot_running:
-            for chat_id in chat_ids:
+            for chat_id in valid_chats:
                 if not selfbot_running:
                     break
                 try:
+                    # الان کلاینت گروه رو در کش داره، پس پیام می‌فرسته
                     await client.send_message(chat_id, "میو")
                     print(f"✅ میو به گروه {chat_id} ارسال شد")
                 except Exception as e:
                     print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-                    # اگر خطای PeerIdInvalid بود، گروه رو غیرفعال کن
-                    if "Peer id invalid" in str(e):
-                        print(f"⚠️ گروه {chat_id} نامعتبر است، از لیست حذف می‌شود")
-                        chat_ids.remove(chat_id)
-                        # به‌روزرسانی دیتابیس بدون گروه نامعتبر
-                        save_user(phone, session_string, [str(cid) for cid in chat_ids])
-                await asyncio.sleep(3)  # فاصله بین گروه‌ها
+                await asyncio.sleep(3)
 
             if selfbot_running:
                 await asyncio.sleep(300)  # ۵ دقیقه
@@ -378,7 +391,6 @@ def save_groups():
     selected = request.form.getlist('groups')
     save_user(phone, session_string, selected)
 
-    # شروع ربات سلف‌بات بعد از ذخیره گروه‌ها
     start_selfbot(phone)
 
     return redirect(url_for('dashboard'))
