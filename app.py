@@ -136,10 +136,7 @@ selfbot_tasks = {}
 meow_timers = {}
 smuggle_timers = {}
 
-# ========== اصلاح توابع لاگین با مدیریت بهتر کلاینت ==========
 async def send_code_async(phone):
-    """ارسال کد و ذخیره کلاینت برای مرحله بعد"""
-    # پاک کردن کلاینت قبلی
     if phone in pending_clients:
         try:
             await pending_clients[phone]["client"].disconnect()
@@ -156,7 +153,7 @@ async def send_code_async(phone):
             "hash": sent.phone_code_hash,
             "phone": phone
         }
-        print(f"✅ کد به {phone} ارسال شد، hash: {sent.phone_code_hash[:10]}...")
+        print(f"✅ کد به {phone} ارسال شد")
         return sent.phone_code_hash
     except PhoneNumberInvalid:
         await client.disconnect()
@@ -168,22 +165,17 @@ async def send_code_async(phone):
         return f"error: {str(e)}"
 
 async def sign_in_async(phone, code):
-    """تایید کد با کلاینت ذخیره‌شده"""
     if phone not in pending_clients:
-        print(f"❌ کلاینت برای {phone} پیدا نشد")
         return "error: session expired, please resend code"
 
     data = pending_clients[phone]
     client = data["client"]
     phone_code_hash = data["hash"]
 
-    # بررسی اینکه کلاینت هنوز متصل است
     if not client.is_connected:
-        print(f"⚠️ کلاینت برای {phone} قطع شده، دوباره connect...")
         try:
             await client.connect()
-        except Exception as e:
-            print(f"❌ خطا در connect مجدد: {e}")
+        except:
             pending_clients.pop(phone, None)
             return "error: session expired, please resend code"
 
@@ -196,10 +188,8 @@ async def sign_in_async(phone, code):
         session_string = await client.export_session_string()
         await client.disconnect()
         pending_clients.pop(phone, None)
-        print(f"✅ ورود {phone} موفق شد")
         return session_string
     except SessionPasswordNeeded:
-        print(f"🔑 رمز دوم برای {phone} لازم است")
         return "need_password"
     except PhoneCodeInvalid:
         await client.disconnect()
@@ -212,16 +202,13 @@ async def sign_in_async(phone, code):
     except Exception as e:
         await client.disconnect()
         pending_clients.pop(phone, None)
-        print(f"❌ خطا در sign_in: {e}")
         return f"error: {str(e)}"
 
 async def check_password_async(phone, password):
-    """تایید رمز دوم با کلاینت ذخیره‌شده"""
     if phone not in pending_clients:
         return "error: session expired, please resend code"
 
     client = pending_clients[phone]["client"]
-    
     if not client.is_connected:
         try:
             await client.connect()
@@ -234,12 +221,10 @@ async def check_password_async(phone, password):
         session_string = await client.export_session_string()
         await client.disconnect()
         pending_clients.pop(phone, None)
-        print(f"✅ رمز دوم {phone} تایید شد")
         return session_string
     except Exception as e:
         await client.disconnect()
         pending_clients.pop(phone, None)
-        print(f"❌ خطا در check_password: {e}")
         return f"error: {str(e)}"
 
 async def get_groups_async(session_string):
@@ -290,21 +275,12 @@ def extract_meow_time(text):
 
 async def click_first_button(message):
     if not message.reply_markup:
-        print("⚠️ پیام دکمه ندارد")
         return False
     try:
-        print(f"🔍 تعداد ردیف‌ها: {len(message.reply_markup.inline_keyboard)}")
-        for i, row in enumerate(message.reply_markup.inline_keyboard):
-            print(f"   ردیف {i}: {[btn.text for btn in row]}")
         first_button = message.reply_markup.inline_keyboard[0][0]
         await first_button.click()
-        print(f"✅ کلیک روی اولین دکمه انجام شد: {first_button.text}")
         return True
-    except IndexError:
-        print("⚠️ هیچ دکمه‌ای در ردیف اول وجود ندارد")
-        return False
-    except Exception as e:
-        print(f"❌ خطا در کلیک روی دکمه: {e}")
+    except:
         return False
 
 async def click_button_by_text(message, keywords):
@@ -318,13 +294,12 @@ async def click_button_by_text(message, keywords):
                 if kw in btn.text:
                     try:
                         await btn.click()
-                        print(f"✅ کلیک روی دکمه '{btn.text}' انجام شد")
                         return True
                     except:
                         return False
     return False
 
-# ========== ربات سلف‌بات (بدون تغییر) ==========
+# ========== ربات سلف‌بات با no_updates=True ==========
 async def selfbot_worker(phone):
     print(f"🔄 شروع selfbot_worker برای {phone}")
     while True:
@@ -343,12 +318,14 @@ async def selfbot_worker(phone):
                 await asyncio.sleep(30)
                 continue
 
+            # ========== no_updates=True برای جلوگیری از Peer id invalid ==========
             client = Client(
                 f"selfbot_{phone}",
                 session_string=session_string,
                 api_id=API_ID,
                 api_hash=API_HASH,
-                in_memory=True
+                in_memory=True,
+                no_updates=True
             )
 
             def chat_filter(chat_ids):
@@ -358,39 +335,24 @@ async def selfbot_worker(phone):
 
             @client.on_message(chat_filter(chat_ids) & filters.user(BOT_USER_ID))
             async def live_handler(c: Client, message: Message):
-                _, selected_groups_now, meow_en, fish_en, smuggle_en, is_active_now = get_user(phone)
-                if not is_active_now:
-                    return
-
+                _, _, meow_en, fish_en, smuggle_en, _ = get_user(phone)
                 text = message.text or ""
-                print(f"📩 [{phone}] پیام زنده: {text[:100]}")
+                print(f"📩 [{phone}] پیام زنده: {text[:80]}")
 
                 if meow_en and "میو پوینت" in text and "بعد از" in text:
                     wait_time = extract_meow_time(text)
                     if wait_time and wait_time > 0:
                         meow_timers[f"{phone}_{message.chat.id}"] = wait_time
-                        print(f"⏱️ [{phone}] تایم میو ثبت شد: {wait_time} ثانیه")
+                        print(f"⏱️ [{phone}] تایم میو: {wait_time} ثانیه")
 
                 if fish_en and "پیشی" in text:
-                    print(f"🐱 [{phone}] تلاش برای کلیک روی دکمه پیشی...")
-                    if message.reply_markup:
-                        print(f"🔍 [{phone}] تعداد ردیف‌ها: {len(message.reply_markup.inline_keyboard)}")
-                        for i, row in enumerate(message.reply_markup.inline_keyboard):
-                            print(f"   ردیف {i}: {[btn.text for btn in row]}")
-                    else:
-                        print(f"⚠️ [{phone}] پیام دکمه ندارد")
-                    clicked = await click_first_button(message)
-                    if clicked:
-                        print(f"✅ [{phone}] کلیک روی اولین دکمه انجام شد")
-                    else:
-                        print(f"❌ [{phone}] کلیک روی دکمه انجام نشد")
+                    print(f"🐱 [{phone}] کلیک روی دکمه پیشی...")
+                    await click_first_button(message)
 
                 if smuggle_en and "قاچاق" in text:
                     if "شروع قاچاق میویی" in text:
-                        print(f"📦 [{phone}] کلیک شروع قاچاق...")
                         await click_button_by_text(message, ["شروع قاچاق", "شروع"])
                     elif "دریافت دستمزد" in text:
-                        print(f"💰 [{phone}] کلیک دریافت دستمزد...")
                         await click_button_by_text(message, ["دریافت دستمزد", "تایید"])
 
             try:
@@ -421,25 +383,21 @@ async def selfbot_worker(phone):
                                 print(f"😺 [{phone}] میو به {chat_id} ارسال شد")
                                 timer_key = f"{phone}_{chat_id}"
                                 for _ in range(15):
-                                    _, _, _, _, _, is_active_now2 = get_user(phone)
-                                    if not is_active_now2:
+                                    if not get_user(phone)[5]:
                                         break
                                     if timer_key in meow_timers:
                                         wait = meow_timers.pop(timer_key)
                                         print(f"⏱️ [{phone}] صبر {wait} ثانیه")
                                         while wait > 0:
-                                            _, _, _, _, _, is_active_now3 = get_user(phone)
-                                            if not is_active_now3:
+                                            if not get_user(phone)[5]:
                                                 break
-                                            sleep_time = min(wait, 10)
-                                            await asyncio.sleep(sleep_time)
-                                            wait -= sleep_time
+                                            await asyncio.sleep(min(wait, 10))
+                                            wait -= 10
                                         break
                                     await asyncio.sleep(1)
                                 else:
                                     for _ in range(300 // 10):
-                                        _, _, _, _, _, is_active_now4 = get_user(phone)
-                                        if not is_active_now4:
+                                        if not get_user(phone)[5]:
                                             break
                                         await asyncio.sleep(10)
                             except Exception as e:
@@ -461,8 +419,7 @@ async def selfbot_worker(phone):
                             except Exception as e:
                                 print(f"❌ [{phone}] خطا در پیشی: {e}")
                         for _ in range(600 // 10):
-                            _, _, _, _, _, is_active_now2 = get_user(phone)
-                            if not is_active_now2:
+                            if not get_user(phone)[5]:
                                 break
                             await asyncio.sleep(10)
 
@@ -478,8 +435,7 @@ async def selfbot_worker(phone):
                                 print(f"📦 [{phone}] قاچاق میویی به {chat_id} ارسال شد")
                                 await asyncio.sleep(5)
                                 for _ in range(3600 // 10):
-                                    _, _, _, _, _, is_active_now2 = get_user(phone)
-                                    if not is_active_now2:
+                                    if not get_user(phone)[5]:
                                         break
                                     await asyncio.sleep(10)
                                 if not get_user(phone)[5]:
@@ -499,8 +455,7 @@ async def selfbot_worker(phone):
                 ]
 
                 while True:
-                    _, _, _, _, _, is_active_now = get_user(phone)
-                    if not is_active_now:
+                    if not get_user(phone)[5]:
                         break
                     await asyncio.sleep(5)
 
@@ -522,7 +477,7 @@ async def selfbot_worker(phone):
             print(f"❌ [{phone}] خطای بحرانی: {e}")
             await asyncio.sleep(30)
 
-# ========== مدیریت ربات‌ها ==========
+# ========== مدیریت ربات‌ها - فقط ربات‌های فعال را شروع کن ==========
 def start_all_bots():
     print("🚀 شروع همه ربات‌ها...")
     users = get_all_users()
@@ -581,7 +536,6 @@ def verify_code():
     elif result == "invalid_code":
         return "کد تایید نامعتبر است", 400
     elif result == "code_expired":
-        # پاک کردن کلاینت
         if phone in pending_clients:
             try:
                 loop = asyncio.new_event_loop()
@@ -596,9 +550,14 @@ def verify_code():
     elif isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
+        # ذخیره کاربر جدید با is_active=True
         save_user(phone, result, [], True, True, True, True)
         session['authenticated'] = True
-        start_all_bots()
+        # فقط ربات جدید را شروع کن، همه را ری‌استارت نکن
+        if phone not in selfbot_tasks or selfbot_tasks[phone].done():
+            task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
+            selfbot_tasks[phone] = task
+            print(f"🚀 ربات {phone} شروع شد")
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
@@ -617,7 +576,10 @@ def verify_password():
     elif isinstance(result, str) and len(result) > 50:
         save_user(phone, result, [], True, True, True, True)
         session['authenticated'] = True
-        start_all_bots()
+        if phone not in selfbot_tasks or selfbot_tasks[phone].done():
+            task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
+            selfbot_tasks[phone] = task
+            print(f"🚀 ربات {phone} شروع شد")
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
@@ -655,6 +617,7 @@ def save_settings():
     selected_groups = request.form.getlist('groups')
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
     
+    # مدیریت ربات بر اساس تنظیمات جدید
     if is_active:
         if phone not in selfbot_tasks or selfbot_tasks[phone].done():
             task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
