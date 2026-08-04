@@ -61,20 +61,24 @@ def get_user(phone):
 
 init_db()
 
-# ========== دیکشنری برای نگهداری Clientهای فعال ==========
-active_clients = {}
+# ========== یک Event Loop ثابت برای کل برنامه ==========
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
-# ========== اجرای async با asyncio.run() ==========
 def run_async(coro):
-    """اجرای تابع async با asyncio.run() - کاملاً ایمن برای Flask"""
+    """اجرای تابع async روی حلقهٔ رویداد ثابت"""
     try:
-        return asyncio.run(coro)
+        return loop.run_until_complete(coro)
     except Exception as e:
         return f"error: {str(e)}"
 
-# ========== توابع Pyrogram ==========
+# ========== دیکشنری برای نگهداری Clientهای فعال ==========
+active_clients = {}
+
+# ========== توابع Pyrogram (با مدیریت دقیق Client) ==========
 async def send_code_async(phone):
-    """ارسال کد و ذخیره Client"""
+    """ارسال کد و ذخیره Client برای مراحل بعد"""
+    # پاک کردن کلاینت قبلی (در صورت وجود)
     if phone in active_clients:
         try:
             await active_clients[phone]["client"].disconnect()
@@ -101,7 +105,7 @@ async def send_code_async(phone):
         return f"error: {str(e)}"
 
 async def sign_in_async(phone, code):
-    """تایید کد"""
+    """تایید کد با استفاده از Client ذخیره‌شده"""
     if phone not in active_clients:
         return "error: session expired, please resend code"
 
@@ -116,10 +120,12 @@ async def sign_in_async(phone, code):
             phone_code=code
         )
         session_string = await client.export_session_string()
+        # لاگین موفق - disconnect و پاک کردن
         await client.disconnect()
         active_clients.pop(phone, None)
         return session_string
     except SessionPasswordNeeded:
+        # رمز دوم لازمه - Client رو نگه دار
         return "need_password"
     except PhoneCodeInvalid:
         await client.disconnect()
@@ -135,11 +141,12 @@ async def sign_in_async(phone, code):
         return f"error: {str(e)}"
 
 async def check_password_async(phone, password):
-    """تایید رمز دوم"""
+    """تایید رمز دوم با استفاده از Client ذخیره‌شده"""
     if phone not in active_clients:
         return "error: session expired, please resend code"
 
     client = active_clients[phone]["client"]
+
     try:
         await client.check_password(password)
         session_string = await client.export_session_string()
@@ -152,7 +159,7 @@ async def check_password_async(phone, password):
         return f"error: {str(e)}"
 
 async def get_groups_async(session_string):
-    """دریافت لیست گروه‌ها"""
+    """دریافت لیست گروه‌ها با سشن استرینگ"""
     client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.start()
     try:
@@ -270,8 +277,7 @@ def logout():
     phone = session.get('phone')
     if phone and phone in active_clients:
         try:
-            # استفاده از asyncio.run برای disconnect
-            asyncio.run(active_clients[phone]["client"].disconnect())
+            loop.run_until_complete(active_clients[phone]["client"].disconnect())
         except:
             pass
         active_clients.pop(phone, None)
