@@ -1,204 +1,272 @@
-from flask import Flask, request, jsonify, render_template, make_response
-from pyrogram import Client
-import asyncio
 import os
 import json
-from datetime import datetime
+import sqlite3
+import asyncio
+from flask import Flask, render_template, request, redirect, url_for, session
+from pyrogram import Client
+from pyrogram.errors import (
+    PhoneNumberInvalid,
+    PhoneCodeInvalid,
+    PhoneCodeExpired,
+    SessionPasswordNeeded
+)
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "change-this-in-production-12345")
 
-# ==================== دریافت همه تنظیمات از متغیرهای محیطی ====================
-API_ID = int(os.environ.get('API_ID', 0))
-API_HASH = os.environ.get('API_HASH', '')
-SECRET_KEY = os.environ.get('SECRET_KEY', '')
+API_ID = int(os.getenv("API_ID", 0))
+API_HASH = os.getenv("API_HASH", "")
 
-# بررسی وجود اطلاعات ضروری
-if API_ID == 0 or not API_HASH:
-    print("\n⚠️  خطا: API_ID و API_HASH را در محیط (Environment) ست کنید!")
-    print("مثال برای لینوکس/ترمینال:")
-    print("export API_ID=12345")
-    print("export API_HASH=your_hash_here")
-    print("سپس دوباره برنامه را اجرا کنید.\n")
-    exit(1)
+if not API_ID or not API_HASH:
+    raise ValueError("API_ID and API_HASH must be set in Railway")
 
-if not SECRET_KEY:
-    print("\n⚠️  هشدار: SECRET_KEY در محیط ست نشده! یک کلید تصادفی موقت ساخته شد.")
-    print("برای ساخت کلید دائمی، از دستور زیر استفاده کن:")
-    print("python -c 'import os; print(os.urandom(24).hex())'")
-    print("سپس: export SECRET_KEY='کلید_ساخته_شده'\n")
-    SECRET_KEY = os.urandom(24).hex()  # ساخت کلید موقت
+# ========== دیتابیس ==========
+DB_DIR = "data"
+DB_PATH = os.path.join(DB_DIR, "users.db")
+if not os.path.exists(DB_DIR):
+    os.makedirs(DB_DIR)
 
-app.secret_key = SECRET_KEY
-
-# دیکشنری برای نگهداری کلاینت‌های فعال
-active_clients = {}
-sessions = {}
-
-# ==================== توابع کمکی ====================
-
-def load_sessions():
-    global sessions
-    if os.path.exists('sessions.json'):
-        with open('sessions.json', 'r') as f:
-            sessions = json.load(f)
-    else:
-        sessions = {}
-
-def save_sessions():
-    with open('sessions.json', 'w') as f:
-        json.dump(sessions, f)
-
-# ==================== تابع اصلی ارسال کد (بدون قطع کردن) ====================
-
-async def send_code_async(phone, proxy=None):
-    try:
-        # فقط کلاینت قبلی رو از حافظه حذف کن (قطع نمی‌کنه)
-        if phone in active_clients:
-            active_clients.pop(phone, None)
-        
-        client = Client(
-            f"sessions/{phone}",
-            api_id=API_ID,
-            api_hash=API_HASH,
-            proxy=proxy
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            phone TEXT PRIMARY KEY,
+            session_string TEXT,
+            selected_groups TEXT
         )
-        
-        await client.connect()
-        
-        if await client.is_user_authorized():
-            active_clients[phone] = {
-                "client": client,
-                "phone_code_hash": None
-            }
-            return {"status": "authorized", "phone": phone}
-        
-        sent_code = await client.send_code(phone)
+    ''')
+    conn.commit()
+    conn.close()
+
+def save_user(phone, session_string, selected_groups=None):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'INSERT OR REPLACE INTO users (phone, session_string, selected_groups) VALUES (?, ?, ?)',
+        (phone, session_string, json.dumps(selected_groups) if selected_groups else None)
+    )
+    conn.commit()
+    conn.close()
+
+def get_user(phone):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT session_string, selected_groups FROM users WHERE phone=?', (phone,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return row[0], json.loads(row[1]) if row[1] else []
+    return None, []
+
+init_db()
+
+# ========== دیکشنری برای نگهداری Clientهای فعال ==========
+active_clients = {}
+
+# ========== اجرای async ==========
+def run_async(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+# ========== توابع Pyrogram ==========
+async def send_code_async(phone):
+    if phone in active_clients:
+        try:
+            await active_clients[phone]["client"].disconnect()
+        except:
+            pass
+        active_clients.pop(phone, None)
+
+    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
+    await client.connect()
+    try:
+        sent = await client.send_code(phone)
         active_clients[phone] = {
             "client": client,
-            "phone_code_hash": sent_code.phone_code_hash
+            "hash": sent.phone_code_hash
         }
-        
-        return {"status": "code_sent", "phone": phone}
+        return sent.phone_code_hash
+    except PhoneNumberInvalid:
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return None
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return f"error: {str(e)}"
 
 async def sign_in_async(phone, code):
+    if phone not in active_clients:
+        return "error: session expired, please resend code"
+
+    data = active_clients[phone]
+    client = data["client"]
+    phone_code_hash = data["hash"]
+
     try:
-        if phone not in active_clients:
-            return {"status": "error", "message": "شماره پیدا نشد"}
-        
-        client = active_clients[phone]["client"]
-        phone_code_hash = active_clients[phone]["phone_code_hash"]
-        
-        await client.sign_in(phone, code, phone_code_hash)
-        
-        sessions[phone] = {
-            "logged_in": True,
-            "time": datetime.now().isoformat()
-        }
-        save_sessions()
-        
-        return {"status": "success", "phone": phone}
+        await client.sign_in(
+            phone_number=phone,
+            phone_code_hash=phone_code_hash,
+            phone_code=code
+        )
+        session_string = await client.export_session_string()
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return session_string
+    except SessionPasswordNeeded:
+        return "need_password"
+    except PhoneCodeInvalid:
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return "invalid_code"
+    except PhoneCodeExpired:
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return "code_expired"
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return f"error: {str(e)}"
 
-# ==================== مسیرهای وب ====================
+async def check_password_async(phone, password):
+    if phone not in active_clients:
+        return "error: session expired, please resend code"
 
+    client = active_clients[phone]["client"]
+    try:
+        await client.check_password(password)
+        session_string = await client.export_session_string()
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return session_string
+    except Exception as e:
+        await client.disconnect()
+        active_clients.pop(phone, None)
+        return f"error: {str(e)}"
+
+async def get_groups_async(session_string):
+    client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
+    try:
+        await client.start()
+        groups = []
+        async for dialog in client.get_dialogs():
+            if dialog.chat.type in ["group", "supergroup"]:
+                groups.append({
+                    "id": str(dialog.chat.id),
+                    "title": dialog.chat.title or "بدون نام",
+                    "members": dialog.chat.members_count or 0
+                })
+        return groups
+    except Exception as e:
+        return f"error: {str(e)}"
+    finally:
+        try:
+            if client.is_connected:
+                await client.disconnect()
+        except:
+            pass
+
+# ========== روت‌های Flask ==========
 @app.route('/')
 def index():
-    phone = request.cookies.get('phone')
-    logged_in = request.cookies.get('logged_in')
-    
-    if phone and logged_in == 'true' and phone in sessions:
-        return render_template('dashboard.html', phone=phone)
+    session.clear()
     return render_template('login.html')
 
 @app.route('/send_code', methods=['POST'])
-def send_code():
-    data = request.get_json(force=True)
-    phone = data.get('phone')
-    proxy = data.get('proxy')
-    
+def send_code_route():
+    phone = request.form.get('phone', '').strip()
     if not phone:
-        return jsonify({"status": "error", "message": "شماره تلفن الزامی است"})
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(send_code_async(phone, proxy))
-    loop.close()
-    
-    return jsonify(result)
+        return "شماره موبایل الزامی است", 400
+
+    result = run_async(send_code_async(phone))
+
+    if isinstance(result, str) and result.startswith("error"):
+        return f"خطا: {result}", 500
+    elif result is None:
+        return "شماره موبایل نامعتبر است", 400
+    else:
+        session['phone'] = phone
+        return render_template('code.html')
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
-    data = request.get_json(force=True)
-    phone = data.get('phone')
-    code = data.get('code')
-    
-    if not phone or not code:
-        return jsonify({"status": "error", "message": "شماره و کد الزامی است"})
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(sign_in_async(phone, code))
-    loop.close()
-    
-    if result["status"] == "success":
-        resp = make_response(jsonify(result))
-        resp.set_cookie('phone', phone, max_age=60*60*24*30)
-        resp.set_cookie('logged_in', 'true', max_age=60*60*24*30)
-        return resp
-    
-    return jsonify(result)
+    code = request.form.get('code', '').strip()
+    phone = session.get('phone')
 
-@app.route('/logout', methods=['POST'])
-def logout():
-    try:
-        data = request.get_json(force=True)
-        phone = data.get('phone')
-        
-        if not phone:
-            return jsonify({"status": "error", "message": "شماره تلفن ارسال نشده"})
-        
-        # فقط از حافظه حذف کن (قطع نمی‌کنه)
-        if phone in active_clients:
-            active_clients.pop(phone, None)
-        
-        if phone in sessions:
-            sessions.pop(phone, None)
-            save_sessions()
-        
-        resp = make_response(jsonify({"status": "success", "message": "خروج موفق"}))
-        resp.set_cookie('phone', '', expires=0)
-        resp.set_cookie('logged_in', '', expires=0)
-        
-        return resp
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+    if not phone:
+        return redirect(url_for('index'))
 
-@app.route('/get_clients', methods=['GET'])
-def get_clients():
-    clients_list = []
-    for phone, data in active_clients.items():
-        clients_list.append({
-            "phone": phone,
-            "connected": data["client"].is_connected if hasattr(data["client"], "is_connected") else False
-        })
-    return jsonify({"clients": clients_list, "count": len(clients_list)})
+    result = run_async(sign_in_async(phone, code))
 
-@app.route('/status')
-def status():
-    return jsonify({
-        "active_clients": len(active_clients),
-        "sessions": len(sessions),
-        "status": "running"
-    })
+    if result == "need_password":
+        return render_template('password.html')
+    elif result == "invalid_code":
+        return "کد تایید نامعتبر است", 400
+    elif result == "code_expired":
+        return "کد تایید منقضی شده است. از اول شماره رو وارد کن.", 400
+    elif isinstance(result, str) and result.startswith("error"):
+        return f"خطا: {result}", 500
+    elif isinstance(result, str) and len(result) > 50:
+        save_user(phone, result)
+        session['session_string'] = result
+        return redirect(url_for('dashboard'))
+    else:
+        return f"خطای ناشناخته: {result}", 500
 
-# ==================== اجرا ====================
+@app.route('/verify_password', methods=['POST'])
+def verify_password():
+    password = request.form.get('password', '').strip()
+    phone = session.get('phone')
+
+    if not phone or not password:
+        return redirect(url_for('index'))
+
+    result = run_async(check_password_async(phone, password))
+
+    if isinstance(result, str) and result.startswith("error"):
+        return f"خطا: {result}", 500
+    elif isinstance(result, str) and len(result) > 50:
+        save_user(phone, result)
+        session['session_string'] = result
+        return redirect(url_for('dashboard'))
+    else:
+        return f"خطای ناشناخته: {result}", 500
+
+@app.route('/dashboard')
+def dashboard():
+    phone = session.get('phone')
+    session_string = session.get('session_string')
+    
+    if not session_string:
+        s, _ = get_user(phone)
+        if s:
+            session_string = s
+            session['session_string'] = session_string
+        else:
+            return redirect(url_for('index'))
+    
+    groups = run_async(get_groups_async(session_string))
+    if isinstance(groups, str) and groups.startswith("error"):
+        return f"خطا در دریافت گروه‌ها: {groups}", 500
+    
+    _, selected = get_user(phone)
+    return render_template('dashboard.html', groups=groups, selected=selected)
+
+@app.route('/save_groups', methods=['POST'])
+def save_groups():
+    selected = request.form.getlist('groups')
+    phone = session.get('phone')
+    if not phone:
+        return redirect(url_for('index'))
+    save_user(phone, session.get('session_string'), selected)
+    return "تنظیمات با موفقیت ذخیره شد! <a href='/dashboard'>بازگشت</a>"
+
+
 
 if __name__ == '__main__':
-    if not os.path.exists('sessions'):
-        os.makedirs('sessions')
-    
-    load_sessions()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)
