@@ -304,7 +304,7 @@ def create_chat_filter(chat_ids):
         return message.chat.id in chat_ids
     return filters.create(func)
 
-# ========== ربات سلف‌بات با no_updates=False (پیش‌فرض) ==========
+# ========== ربات سلف‌بات ==========
 async def selfbot_worker(phone):
     print(f"🔄 شروع selfbot_worker برای {phone}")
     while True:
@@ -341,16 +341,17 @@ async def selfbot_worker(phone):
                 text = message.text or ""
                 print(f"📩 [{phone}] پیام زنده: {text[:80]}")
 
-                if meow_en and "میو پوینت" in text and "بعد از" in text:
-                    wait_time = extract_meow_time(text)
-                    if wait_time and wait_time > 0:
-                        meow_timers[f"{phone}_{message.chat.id}"] = wait_time
-                        print(f"⏱️ [{phone}] تایم میو: {wait_time} ثانیه")
+                # ===== میو: فقط کلیک روی دکمه برداشت (اگر دکمه داره) =====
+                if meow_en and "میو پوینت" in text:
+                    print(f"😺 [{phone}] کلیک روی دکمه میو...")
+                    await click_first_button(message)
 
+                # ===== پیشی =====
                 if fish_en and "پیشی" in text:
                     print(f"🐱 [{phone}] کلیک روی دکمه پیشی...")
                     await click_first_button(message)
 
+                # ===== قاچاق =====
                 if smuggle_en and "قاچاق" in text:
                     if "شروع قاچاق میویی" in text:
                         await click_button_by_text(message, ["شروع قاچاق", "شروع"])
@@ -373,6 +374,7 @@ async def selfbot_worker(phone):
                     await asyncio.sleep(30)
                     continue
 
+                # ========== حلقه میو (هر ۵ دقیقه) ==========
                 async def meow_loop():
                     while True:
                         _, _, meow_en_now, _, _, is_active_now = get_user(phone)
@@ -383,30 +385,17 @@ async def selfbot_worker(phone):
                             try:
                                 await client.send_message(chat_id, "میو")
                                 print(f"😺 [{phone}] میو به {chat_id} ارسال شد")
-                                timer_key = f"{phone}_{chat_id}"
-                                for _ in range(15):
-                                    if not get_user(phone)[5]:
-                                        break
-                                    if timer_key in meow_timers:
-                                        wait = meow_timers.pop(timer_key)
-                                        print(f"⏱️ [{phone}] صبر {wait} ثانیه")
-                                        while wait > 0:
-                                            if not get_user(phone)[5]:
-                                                break
-                                            await asyncio.sleep(min(wait, 10))
-                                            wait -= 10
-                                        break
-                                    await asyncio.sleep(1)
-                                else:
-                                    for _ in range(300 // 10):
-                                        if not get_user(phone)[5]:
-                                            break
-                                        await asyncio.sleep(10)
                             except Exception as e:
                                 print(f"❌ [{phone}] خطا در میو: {e}")
-                                await asyncio.sleep(60)
-                        await asyncio.sleep(5)
+                            await asyncio.sleep(3)  # فاصله بین گروه‌ها
+                        # ۵ دقیقه صبر بعد از ارسال به همه گروه‌ها
+                        for _ in range(300 // 10):
+                            if not get_user(phone)[5]:
+                                break
+                            await asyncio.sleep(10)
+                        print(f"⏱️ [{phone}] ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
 
+                # ========== حلقه پیشی (هر ۱۰ دقیقه) ==========
                 async def fish_loop():
                     while True:
                         _, _, _, fish_en_now, _, is_active_now = get_user(phone)
@@ -425,6 +414,7 @@ async def selfbot_worker(phone):
                                 break
                             await asyncio.sleep(10)
 
+                # ========== حلقه قاچاق (هر ۱ ساعت) ==========
                 async def smuggle_loop():
                     while True:
                         _, _, _, _, smuggle_en_now, is_active_now = get_user(phone)
@@ -479,10 +469,12 @@ async def selfbot_worker(phone):
             print(f"❌ [{phone}] خطای بحرانی: {e}")
             await asyncio.sleep(30)
 
-# ========== مدیریت ربات‌ها - شروع همه ربات‌های فعال ==========
+# ========== مدیریت ربات‌ها ==========
 def start_all_bots():
+    """شروع همه ربات‌های فعال"""
     print("🚀 شروع همه ربات‌ها...")
     users = get_all_users()
+    started = 0
     for user in users:
         if user["is_active"] and user["session_string"] and user["selected_groups"]:
             phone = user["phone"]
@@ -490,6 +482,10 @@ def start_all_bots():
                 print(f"🚀 شروع ربات برای {phone}")
                 task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
                 selfbot_tasks[phone] = task
+                started += 1
+            else:
+                print(f"ℹ️ ربات {phone} در حال اجراست")
+    print(f"✅ {started} ربات شروع شد")
 
 def stop_all_bots():
     for phone in list(selfbot_tasks.keys()):
@@ -554,7 +550,6 @@ def verify_code():
     elif isinstance(result, str) and len(result) > 50:
         save_user(phone, result, [], True, True, True, True)
         session['authenticated'] = True
-        # شروع همه ربات‌های فعال (شامل شماره جدید و شماره‌های قبلی)
         start_all_bots()
         return redirect(url_for('dashboard'))
     else:
@@ -611,10 +606,7 @@ def save_settings():
     is_active = request.form.get('is_active') == 'on'
     selected_groups = request.form.getlist('groups')
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
-    
-    # شروع همه ربات‌های فعال
     start_all_bots()
-    
     return redirect(url_for('dashboard'))
 
 @app.route('/toggle_user', methods=['POST'])
@@ -628,7 +620,6 @@ def toggle_user():
     if session_string:
         new_status = action == 'enable'
         save_user(target_phone, session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, new_status)
-        # شروع همه ربات‌های فعال
         start_all_bots()
     return redirect(url_for('dashboard'))
 
