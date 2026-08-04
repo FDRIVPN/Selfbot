@@ -7,7 +7,7 @@
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:Tahoma,sans-serif;background:linear-gradient(135deg,#fdf6e3,#f5e6ca);min-height:100vh;padding:30px 20px;display:flex;justify-content:center;align-items:flex-start}
-        .container{background:#fff;border-radius:28px;padding:40px 38px;max-width:760px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.1)}
+        .container{background:#fff;border-radius:28px;padding:40px 38px;max-width:800px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.1)}
         .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:10px}
         .header-left{display:flex;align-items:center;gap:12px}
         .header-left .icon{font-size:36px}
@@ -18,15 +18,8 @@
         .btn-sm-danger:hover{background:#e8ccc4}
         .btn-sm-outline{background:transparent;color:#e8850e;border:2px solid #e8850e}
         .btn-sm-outline:hover{background:#e8850e;color:#fff}
-        .btn-sm-success{background:#34a853;color:#fff}
-        .btn-sm-success:hover{background:#2d9248}
-        .subtitle{color:#8a7a6a;font-size:15px;margin-bottom:22px;border-bottom:1px solid #f0e8e0;padding-bottom:16px}
-        .section{margin-bottom:28px;padding:18px 20px;background:#faf8f5;border-radius:16px}
-        .section-title{font-size:18px;font-weight:700;color:#3d2c1b;margin-bottom:12px;display:flex;align-items:center;gap:10px}
-        .section-title .badge{font-size:12px;background:#e8e0d8;padding:2px 12px;border-radius:20px;color:#6a5a4a}
-        .toggle-group{display:flex;align-items:center;gap:12px;padding:4px 0}
-        .toggle-group label{font-size:15px;color:#4a3724;cursor:pointer}
-        .toggle-group input[type="checkbox"]{width:18px;height:18px;accent-color:#e8850e;cursor:pointer}
+        .section{margin-bottom:30px;padding-bottom:20px;border-bottom:1px solid #f0e8e0}
+        .section-title{font-size:18px;font-weight:700;color:#3d2c1b;margin-bottom:12px}
         .group-list{max-height:400px;overflow-y:auto;margin-bottom:24px;padding-right:4px}
         .group-list::-webkit-scrollbar{width:6px}
         .group-list::-webkit-scrollbar-track{background:#f5f0ea;border-radius:8px}
@@ -42,12 +35,18 @@
         .group-item.selected .badge{background:#e8850e;color:#fff}
         .btn-save{width:100%;padding:16px;background:linear-gradient(135deg,#e8850e,#d97706);color:#fff;border:none;border-radius:16px;font-size:20px;font-weight:700;cursor:pointer;transition:all .3s;margin-top:6px}
         .btn-save:hover{transform:scale(1.02);box-shadow:0 8px 30px rgba(232,133,14,.35)}
+        .toggle-container{display:flex;gap:20px;flex-wrap:wrap;margin:10px 0}
+        .toggle-item{display:flex;align-items:center;gap:8px;background:#faf8f5;padding:8px 16px;border-radius:12px;border:1px solid #ede5d8}
+        .toggle-item input[type="checkbox"]{width:18px;height:18px;accent-color:#e8850e;cursor:pointer}
+        .toggle-item label{font-weight:600;color:#4a3724;cursor:pointer}
         .footer-actions{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:18px;border-top:1px solid #f0e8e0;flex-wrap:wrap;gap:12px}
         .footer-actions .status{font-size:14px;color:#8a7a6a}
         .footer-actions .status .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:6px}
         .dot.green{background:#34a853}
         .btn-sm-secondary{background:#f0e8e0;color:#4a3724}
         .btn-sm-secondary:hover{background:#e0d5c8}
+        .btn-sm-success{background:#34a853;color:#fff}
+        .btn-sm-success:hover{background:#2d9248}
         .empty-state{text-align:center;padding:40px 20px;color:#a09080}
         .empty-state .big-icon{font-size:64px;margin-bottom:12px}
         .empty-state h3{color:#4a3724;margin-bottom:6px}
@@ -63,32 +62,33 @@
                 <a href="/logout" class="btn-sm btn-sm-outline">🚪 خروج</a>
             </div>
         </div>
-        <p class="subtitle">تنظیمات و مدیریت گروه‌ها</p>
 
         <!-- تنظیمات قابلیت‌ها -->
-        <form method="post" action="/save_settings">
-            <div class="section">
-                <div class="section-title">⚙️ تنظیمات قابلیت‌ها</div>
-                <div class="toggle-group">
-                    <input type="checkbox" name="meow" id="meow" {% if settings.meow %}checked{% endif %}>
-                    <label for="meow">😺 میو میو کردن (ارسال خودکار میو با تایم)</label>
+        <div class="section">
+            <div class="section-title">⚙️ تنظیمات قابلیت‌ها</div>
+            <form method="post" action="/save_settings">
+                <div class="toggle-container">
+                    <div class="toggle-item">
+                        <input type="checkbox" name="meow_enabled" id="meow_enabled" {% if meow_enabled %}checked{% endif %}>
+                        <label for="meow_enabled">😺 میو</label>
+                    </div>
+                    <div class="toggle-item">
+                        <input type="checkbox" name="fish_enabled" id="fish_enabled" {% if fish_enabled %}checked{% endif %}>
+                        <label for="fish_enabled">🐱 پیشی</label>
+                    </div>
+                    <div class="toggle-item">
+                        <input type="checkbox" name="smuggle_enabled" id="smuggle_enabled" {% if smuggle_enabled %}checked{% endif %}>
+                        <label for="smuggle_enabled">📦 قاچاق میویی</label>
+                    </div>
                 </div>
-                <div class="toggle-group">
-                    <input type="checkbox" name="fish" id="fish" {% if settings.fish %}checked{% endif %}>
-                    <label for="fish">🐱 پیشی (ارسال خودکار و برداشت میوپوینت هر ۱۰ دقیقه)</label>
-                </div>
-                <div class="toggle-group">
-                    <input type="checkbox" name="smuggle" id="smuggle" {% if settings.smuggle %}checked{% endif %}>
-                    <label for="smuggle">📦 قاچاق میویی (فعال/غیرفعال)</label>
-                </div>
-                <button type="submit" class="btn-sm btn-sm-success" style="margin-top:12px;">💾 ذخیره تنظیمات</button>
-            </div>
-        </form>
+                <button type="submit" class="btn-save" style="padding:12px;font-size:16px">💾 ذخیره تنظیمات</button>
+            </form>
+        </div>
 
         <!-- انتخاب گروه‌ها -->
-        <form method="post" action="/save_groups">
-            <div class="section">
-                <div class="section-title">📋 گروه‌های فعال</div>
+        <div class="section">
+            <div class="section-title">📋 گروه‌های فعال</div>
+            <form method="post" action="/save_groups">
                 <div class="group-list">
                     {% if groups %}
                         {% for group in groups %}
@@ -103,8 +103,8 @@
                     {% endif %}
                 </div>
                 <button type="submit" class="btn-save">💾 ذخیره گروه‌ها</button>
-            </div>
-        </form>
+            </form>
+        </div>
 
         <div class="footer-actions">
             <span class="status"><span class="dot green"></span> ربات: <span id="bot-status">{% if selected %}فعال{% else %}غیرفعال{% endif %}</span></span>
