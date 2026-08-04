@@ -81,6 +81,7 @@ threading.Thread(
 ).start()
 
 def run_async(coro, timeout=120):
+    """برای توابع غیرحلقه‌ای (لاگین، دریافت گروه‌ها) با تایم‌اوت"""
     future = asyncio.run_coroutine_threadsafe(coro, ASYNC_LOOP)
     try:
         return future.result(timeout=timeout)
@@ -94,6 +95,7 @@ def run_async(coro, timeout=120):
 active_clients = {}
 selfbot_running = False
 selfbot_thread = None
+selfbot_lock = threading.Lock()
 
 # ========== توابع Pyrogram ==========
 async def send_code_async(phone):
@@ -202,11 +204,11 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات با ری‌استارت خودکار ==========
+# ========== ربات سلف‌بات (بدون تایم‌اوت) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
-    while True:  # حلقه بی‌نهایت برای ری‌استارت خودکار
+    while True:
         try:
             session_string, selected_groups = get_user(phone)
             if not session_string or not selected_groups:
@@ -251,8 +253,14 @@ async def selfbot_worker(phone):
 
                 save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
-                # حلقه اصلی با تایمر ۳۰ ثانیه
-                while selfbot_running:
+                # ========== حلقه اصلی با چک مداوم selfbot_running ==========
+                while True:
+                    # اگر ربات باید متوقف بشه، صبر کن تا دوباره فعال بشه
+                    while not selfbot_running:
+                        print("⏸️ ربات در حالت توقف است، منتظر فعال شدن...")
+                        await asyncio.sleep(5)
+                        continue
+
                     # ارسال میو به همه گروه‌ها
                     for chat_id in valid_chats:
                         if not selfbot_running:
@@ -268,19 +276,17 @@ async def selfbot_worker(phone):
                                 print(f"⚠️ گروه {chat_id} از لیست حذف شد")
                         await asyncio.sleep(3)
 
-                    if selfbot_running:
-                        print("⏳ منتظر ۵ دقیقه برای میو بعدی... (هر ۳۰ ثانیه لاگ می‌زنم)")
-                        for _ in range(10):
-                            if not selfbot_running:
-                                break
-                            print(f"⏳ ربات زنده است... ({_+1}/10) - {int((_+1)*30)} ثانیه از ۳۰۰ ثانیه")
-                            await asyncio.sleep(30)
-                        print("⏳ ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
+                    if not selfbot_running:
+                        continue
 
-                # اگر حلقه خارج شد (selfbot_running = False)، ربات رو متوقف کن
-                print("🛑 ربات سلف‌بات متوقف شد (دستور توقف)")
-                await client.stop()
-                break
+                    print("⏳ منتظر ۵ دقیقه برای میو بعدی... (هر ۳۰ ثانیه لاگ می‌زنم)")
+                    for _ in range(10):
+                        if not selfbot_running:
+                            break
+                        print(f"⏳ ربات زنده است... ({_+1}/10) - {int((_+1)*30)} ثانیه از ۳۰۰ ثانیه")
+                        await asyncio.sleep(30)
+                    if selfbot_running:
+                        print("⏳ ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
 
             except Exception as e:
                 print(f"❌ خطا در سلف‌بات: {e}")
@@ -298,21 +304,23 @@ async def selfbot_worker(phone):
             continue
 
 def start_selfbot(phone):
+    """شروع ربات سلف‌بات بدون تایم‌اوت - مستقیماً روی Event Loop اجرا میشه"""
     global selfbot_running, selfbot_thread
-    if selfbot_running:
-        print("⚠️ ربات از قبل روشن است")
-        return
-    selfbot_running = True
-    selfbot_thread = threading.Thread(
-        target=lambda: run_async(selfbot_worker(phone)),
-        daemon=True
-    )
-    selfbot_thread.start()
+    
+    with selfbot_lock:
+        if selfbot_running:
+            print("⚠️ ربات از قبل روشن است")
+            return
+        selfbot_running = True
+
+    # اجرای مستقیم روی Event Loop بدون تایم‌اوت
+    asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
     print("🚀 ربات سلف‌بات شروع شد")
 
 def stop_selfbot():
     global selfbot_running
-    selfbot_running = False
+    with selfbot_lock:
+        selfbot_running = False
     print("🛑 توقف ربات درخواست شد")
 
 # ========== روت‌های Flask ==========
