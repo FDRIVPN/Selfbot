@@ -7,8 +7,8 @@ from pyrogram import Client
 from pyrogram.errors import (
     PhoneNumberInvalid,
     PhoneCodeInvalid,
-    SessionPasswordNeeded,
-    PhoneCodeExpired
+    PhoneCodeExpired,
+    SessionPasswordNeeded
 )
 
 app = Flask(__name__)
@@ -18,9 +18,12 @@ API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 
 if not API_ID or not API_HASH:
-    raise ValueError("API_ID و API_HASH باید در Railway تنظیم شوند")
+    raise ValueError("API_ID and API_HASH must be set in Railway")
 
 DB_PATH = "/tmp/users.db"
+
+# دیکشنری موقت برای نگهداری phone_code_hash (با کلید شماره)
+temp_hashes = {}
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -67,11 +70,13 @@ def run_async(coro):
 
 # ========== توابع Pyrogram اصلاح‌شده ==========
 async def send_code_async(phone):
-    """ارسال کد تایید بدون نیاز به ورودی از خط فرمان"""
+    """ارسال کد و ذخیره phone_code_hash در دیکشنری موقت"""
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.connect()  # فقط connect، نه start()
+    await client.connect()
     try:
-        await client.send_code(phone)
+        sent = await client.send_code(phone)
+        # ذخیره hash در دیکشنری با کلید شماره
+        temp_hashes[phone] = sent.phone_code_hash
         return True
     except PhoneNumberInvalid:
         return False
@@ -79,12 +84,20 @@ async def send_code_async(phone):
         await client.disconnect()
 
 async def sign_in_async(phone, code, password=None):
-    """ورود با کد تایید و رمز دوم (اختیاری) - استفاده از named arguments"""
+    """ورود با استفاده از phone_code_hash ذخیره‌شده"""
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
-        # ✅ استفاده از named arguments برای جلوگیری از خطای missing argument
-        await client.sign_in(phone_number=phone, phone_code=code)
+        # دریافت hash از دیکشنری
+        phone_code_hash = temp_hashes.get(phone)
+        if not phone_code_hash:
+            return "error: phone_code_hash not found, please resend code"
+
+        await client.sign_in(
+            phone_number=phone,
+            phone_code_hash=phone_code_hash,
+            phone_code=code
+        )
     except SessionPasswordNeeded:
         if password:
             await client.check_password(password)
@@ -99,12 +112,13 @@ async def sign_in_async(phone, code, password=None):
 
     session_string = await client.export_session_string()
     await client.disconnect()
+    # پاک کردن hash بعد از موفقیت (اختیاری)
+    temp_hashes.pop(phone, None)
     return session_string
 
 async def get_groups_async(session_string):
-    """دریافت لیست گروه‌ها با سشن استرینگ"""
     client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
-    await client.start()  # اینجا می‌تونیم start کنیم چون سشن داریم
+    await client.start()
     try:
         groups = []
         async for dialog in client.get_dialogs():
