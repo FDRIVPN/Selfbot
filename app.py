@@ -24,8 +24,8 @@ API_HASH = os.getenv("API_HASH", "")
 if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
-# ========== دیتابیس در مسیر دائمی ==========
-DB_DIR = "/app/data"
+# ========== دیتابیس ==========
+DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
 if not os.path.exists(DB_DIR):
     os.makedirs(DB_DIR)
@@ -202,7 +202,7 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (همیشه روشن) ==========
+# ========== ربات سلف‌بات ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
@@ -234,7 +234,6 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
 
-        # اعتبارسنجی گروه‌ها از دیالوگ‌ها
         valid_chats = []
         async for dialog in client.get_dialogs():
             if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
@@ -247,10 +246,8 @@ async def selfbot_worker(phone):
             selfbot_running = False
             return
 
-        # ذخیره گروه‌های معتبر در دیتابیس
         save_user(phone, session_string, [str(cid) for cid in valid_chats])
 
-        # ========== حلقه بی‌نهایت (همیشه روشن) ==========
         while selfbot_running:
             for chat_id in valid_chats:
                 if not selfbot_running:
@@ -260,21 +257,19 @@ async def selfbot_worker(phone):
                     print(f"✅ میو به گروه {chat_id} ارسال شد")
                 except Exception as e:
                     print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-                    # اگر خطای نامعتبر بود، گروه رو حذف کن
                     if "Peer id invalid" in str(e) or "USER_NOT_PARTICIPANT" in str(e):
                         valid_chats.remove(chat_id)
                         save_user(phone, session_string, [str(cid) for cid in valid_chats])
                         print(f"⚠️ گروه {chat_id} از لیست حذف شد")
-                await asyncio.sleep(3)  # فاصله بین گروه‌ها
+                await asyncio.sleep(3)
 
             if selfbot_running:
                 print("⏳ منتظر ۵ دقیقه برای میو بعدی...")
-                await asyncio.sleep(300)  # ۵ دقیقه
+                await asyncio.sleep(300)
 
     except Exception as e:
         print(f"❌ خطا در سلف‌بات: {e}")
     finally:
-        # فقط اگر selfbot_running هنوز True باشه، False کن (برای توقف دستی)
         if selfbot_running:
             selfbot_running = False
             print("🛑 ربات سلف‌بات متوقف شد")
