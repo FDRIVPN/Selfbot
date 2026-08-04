@@ -136,7 +136,10 @@ selfbot_tasks = {}
 meow_timers = {}
 smuggle_timers = {}
 
+# ========== اصلاح توابع لاگین با مدیریت بهتر کلاینت ==========
 async def send_code_async(phone):
+    """ارسال کد و ذخیره کلاینت برای مرحله بعد"""
+    # پاک کردن کلاینت قبلی
     if phone in pending_clients:
         try:
             await pending_clients[phone]["client"].disconnect()
@@ -150,8 +153,10 @@ async def send_code_async(phone):
         sent = await client.send_code(phone)
         pending_clients[phone] = {
             "client": client,
-            "hash": sent.phone_code_hash
+            "hash": sent.phone_code_hash,
+            "phone": phone
         }
+        print(f"✅ کد به {phone} ارسال شد، hash: {sent.phone_code_hash[:10]}...")
         return sent.phone_code_hash
     except PhoneNumberInvalid:
         await client.disconnect()
@@ -163,12 +168,24 @@ async def send_code_async(phone):
         return f"error: {str(e)}"
 
 async def sign_in_async(phone, code):
+    """تایید کد با کلاینت ذخیره‌شده"""
     if phone not in pending_clients:
+        print(f"❌ کلاینت برای {phone} پیدا نشد")
         return "error: session expired, please resend code"
 
     data = pending_clients[phone]
     client = data["client"]
     phone_code_hash = data["hash"]
+
+    # بررسی اینکه کلاینت هنوز متصل است
+    if not client.is_connected:
+        print(f"⚠️ کلاینت برای {phone} قطع شده، دوباره connect...")
+        try:
+            await client.connect()
+        except Exception as e:
+            print(f"❌ خطا در connect مجدد: {e}")
+            pending_clients.pop(phone, None)
+            return "error: session expired, please resend code"
 
     try:
         await client.sign_in(
@@ -179,8 +196,10 @@ async def sign_in_async(phone, code):
         session_string = await client.export_session_string()
         await client.disconnect()
         pending_clients.pop(phone, None)
+        print(f"✅ ورود {phone} موفق شد")
         return session_string
     except SessionPasswordNeeded:
+        print(f"🔑 رمز دوم برای {phone} لازم است")
         return "need_password"
     except PhoneCodeInvalid:
         await client.disconnect()
@@ -193,22 +212,34 @@ async def sign_in_async(phone, code):
     except Exception as e:
         await client.disconnect()
         pending_clients.pop(phone, None)
+        print(f"❌ خطا در sign_in: {e}")
         return f"error: {str(e)}"
 
 async def check_password_async(phone, password):
+    """تایید رمز دوم با کلاینت ذخیره‌شده"""
     if phone not in pending_clients:
         return "error: session expired, please resend code"
 
     client = pending_clients[phone]["client"]
+    
+    if not client.is_connected:
+        try:
+            await client.connect()
+        except:
+            pending_clients.pop(phone, None)
+            return "error: session expired, please resend code"
+
     try:
         await client.check_password(password)
         session_string = await client.export_session_string()
         await client.disconnect()
         pending_clients.pop(phone, None)
+        print(f"✅ رمز دوم {phone} تایید شد")
         return session_string
     except Exception as e:
         await client.disconnect()
         pending_clients.pop(phone, None)
+        print(f"❌ خطا در check_password: {e}")
         return f"error: {str(e)}"
 
 async def get_groups_async(session_string):
@@ -293,7 +324,7 @@ async def click_button_by_text(message, keywords):
                         return False
     return False
 
-# ========== ربات سلف‌بات ==========
+# ========== ربات سلف‌بات (بدون تغییر) ==========
 async def selfbot_worker(phone):
     print(f"🔄 شروع selfbot_worker برای {phone}")
     while True:
@@ -511,7 +542,6 @@ def stop_all_bots():
     print("🛑 همه ربات‌ها متوقف شدند")
 
 def stop_bot(phone):
-    # فقط تسک رو لغو کن، is_active رو تغییر نده
     if phone in selfbot_tasks and not selfbot_tasks[phone].done():
         selfbot_tasks[phone].cancel()
         selfbot_tasks.pop(phone, None)
@@ -543,12 +573,15 @@ def verify_code():
     phone = session.get('phone')
     if not phone:
         return redirect(url_for('index'))
+    
     result = run_async(sign_in_async(phone, code))
+    
     if result == "need_password":
         return render_template('password.html')
     elif result == "invalid_code":
         return "کد تایید نامعتبر است", 400
     elif result == "code_expired":
+        # پاک کردن کلاینت
         if phone in pending_clients:
             try:
                 loop = asyncio.new_event_loop()
@@ -576,7 +609,9 @@ def verify_password():
     phone = session.get('phone')
     if not phone or not password:
         return redirect(url_for('index'))
+    
     result = run_async(check_password_async(phone, password))
+    
     if isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
@@ -620,7 +655,6 @@ def save_settings():
     selected_groups = request.form.getlist('groups')
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
     
-    # مدیریت شروع/توقف ربات بر اساس تنظیمات جدید
     if is_active:
         if phone not in selfbot_tasks or selfbot_tasks[phone].done():
             task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
