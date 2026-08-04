@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پنل میو</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; max-width: 700px; margin: 30px auto; padding: 20px; }
+        .group-item { padding: 8px; border-bottom: 1px solid #ddd; }
+        button { background: #28a745; color: white; border: none; padding: 12px 24px; cursor: pointer; }
+        button:hover { background: #218838; }
+        .selected { background: #e8f5e9; }
+    </style>
+</head>
+<body>
+    <h2>😺 پنل میو میو کردن</h2>
+    <p>گروه‌های مورد نظر برای ربات میو را انتخاب کنید:</p>
+
+    <form method="post" action="/save_groups">
+        {% for group in groups %}
+            <div class="group-item {% if group.id|string in selected %}selected{% endif %}">
+                <label>
+                    <input type="checkbox" name="groups" value="{{ group.id }}"
+                           {% if group.id|string in selected %}checked{% endif %}>
+                    <strong>{{ group.title }}</strong> — {{ group.members }} عضو
+                </label>
+            </div>
+        {% endfor %}
+        <br>
+        <button type="submit">💾 ذخیره تنظیمات</button>
+    </form>
+
+    <hr>
+    <p><a href="/">خروج</a></p>
+</body>
+</html>
