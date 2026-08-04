@@ -6,6 +6,7 @@ import threading
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from flask import Flask, render_template, request, redirect, url_for, session
 from pyrogram import Client
+from pyrogram.enums import ChatType
 from pyrogram.errors import (
     PhoneNumberInvalid,
     PhoneCodeInvalid,
@@ -178,7 +179,10 @@ async def get_groups_async(session_string):
         await client.start()
         groups = []
         async for dialog in client.get_dialogs():
-            if dialog.chat.type in ["group", "supergroup"]:
+            # لاگ برای دیباگ (توی Railway Logs می‌بینی)
+            print(f"Chat: {dialog.chat.title} | Type: {dialog.chat.type} | ID: {dialog.chat.id}")
+
+            if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
                 groups.append({
                     "id": str(dialog.chat.id),
                     "title": dialog.chat.title or "بدون نام",
