@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>پنل میو</title>
+    <title>پنل مدیریت میو</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:Tahoma,sans-serif;background:linear-gradient(135deg,#fdf6e3,#f5e6ca);min-height:100vh;padding:30px 20px;display:flex;justify-content:center;align-items:flex-start}
-        .container{background:#fff;border-radius:28px;padding:40px 38px;max-width:800px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.1)}
+        .container{background:#fff;border-radius:28px;padding:40px 38px;max-width:900px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.1)}
         .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:10px}
         .header-left{display:flex;align-items:center;gap:12px}
         .header-left .icon{font-size:36px}
@@ -18,97 +18,185 @@
         .btn-sm-danger:hover{background:#e8ccc4}
         .btn-sm-outline{background:transparent;color:#e8850e;border:2px solid #e8850e}
         .btn-sm-outline:hover{background:#e8850e;color:#fff}
-        .section{margin-bottom:30px;padding-bottom:20px;border-bottom:1px solid #f0e8e0}
+        .btn-sm-success{background:#34a853;color:#fff}
+        .btn-sm-success:hover{background:#2d9248}
+        .btn-sm-secondary{background:#f0e8e0;color:#4a3724}
+        .btn-sm-secondary:hover{background:#e0d5c8}
+        .subtitle{color:#8a7a6a;font-size:15px;margin-bottom:22px;border-bottom:1px solid #f0e8e0;padding-bottom:16px}
+        .section{margin-bottom:30px}
         .section-title{font-size:18px;font-weight:700;color:#3d2c1b;margin-bottom:12px}
-        .group-list{max-height:400px;overflow-y:auto;margin-bottom:24px;padding-right:4px}
+        .group-list{max-height:300px;overflow-y:auto;margin-bottom:16px;padding-right:4px}
         .group-list::-webkit-scrollbar{width:6px}
         .group-list::-webkit-scrollbar-track{background:#f5f0ea;border-radius:8px}
         .group-list::-webkit-scrollbar-thumb{background:#e0d5c8;border-radius:8px}
-        .group-item{display:flex;align-items:center;padding:14px 16px;background:#faf8f5;border-radius:16px;margin-bottom:10px;transition:all .25s;border:2px solid transparent;cursor:pointer}
+        .group-item{display:flex;align-items:center;padding:12px 16px;background:#faf8f5;border-radius:16px;margin-bottom:8px;transition:all .25s;border:2px solid transparent;cursor:pointer}
         .group-item:hover{border-color:#f0e8e0}
         .group-item.selected{background:#fef6ec;border-color:#e8850e}
-        .group-item input[type="checkbox"]{width:20px;height:20px;margin-left:14px;accent-color:#e8850e;cursor:pointer;flex-shrink:0}
+        .group-item input[type="checkbox"]{width:18px;height:18px;margin-left:14px;accent-color:#e8850e;cursor:pointer;flex-shrink:0}
         .group-item .info{flex:1}
-        .group-item .info .title{font-size:16px;font-weight:600;color:#3d2c1b}
+        .group-item .info .title{font-size:15px;font-weight:600;color:#3d2c1b}
         .group-item .info .meta{font-size:13px;color:#a09080;margin-top:2px}
         .group-item .badge{background:#e8e0d8;padding:2px 12px;border-radius:20px;font-size:12px;color:#6a5a4a;font-weight:600;white-space:nowrap}
         .group-item.selected .badge{background:#e8850e;color:#fff}
-        .btn-save{width:100%;padding:16px;background:linear-gradient(135deg,#e8850e,#d97706);color:#fff;border:none;border-radius:16px;font-size:20px;font-weight:700;cursor:pointer;transition:all .3s;margin-top:6px}
+        .settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+        .settings-item{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#faf8f5;border-radius:12px}
+        .settings-item input[type="checkbox"]{width:20px;height:20px;accent-color:#e8850e;cursor:pointer}
+        .settings-item label{font-weight:600;color:#3d2c1b;cursor:pointer}
+        .settings-item .status{font-size:12px;padding:2px 10px;border-radius:12px}
+        .settings-item .status.on{background:#34a853;color:#fff}
+        .settings-item .status.off{background:#ea4335;color:#fff}
+        .btn-save{width:100%;padding:14px;background:linear-gradient(135deg,#e8850e,#d97706);color:#fff;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;transition:all .3s;margin-top:6px}
         .btn-save:hover{transform:scale(1.02);box-shadow:0 8px 30px rgba(232,133,14,.35)}
-        .toggle-container{display:flex;gap:20px;flex-wrap:wrap;margin:10px 0}
-        .toggle-item{display:flex;align-items:center;gap:8px;background:#faf8f5;padding:8px 16px;border-radius:12px;border:1px solid #ede5d8}
-        .toggle-item input[type="checkbox"]{width:18px;height:18px;accent-color:#e8850e;cursor:pointer}
-        .toggle-item label{font-weight:600;color:#4a3724;cursor:pointer}
+        .users-table{width:100%;border-collapse:collapse;margin-top:12px}
+        .users-table th,.users-table td{padding:10px 12px;text-align:right;border-bottom:1px solid #f0e8e0}
+        .users-table th{background:#faf8f5;font-weight:700;color:#3d2c1b}
+        .users-table tr:hover{background:#fcfaf8}
+        .badge-active{background:#34a853;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
+        .badge-inactive{background:#ea4335;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
+        .btn-xs{padding:4px 12px;border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;text-decoration:none;display:inline-block}
+        .btn-xs-success{background:#34a853;color:#fff}
+        .btn-xs-success:hover{background:#2d9248}
+        .btn-xs-danger{background:#ea4335;color:#fff}
+        .btn-xs-danger:hover{background:#c62828}
+        .add-user-box{background:#faf8f5;border-radius:16px;padding:16px;margin-top:16px;border:2px dashed #e0d5c8}
+        .add-user-box input{padding:10px 14px;border:2px solid #ede5d8;border-radius:12px;font-size:14px;background:#fff;outline:none;width:200px}
+        .add-user-box input:focus{border-color:#e8850e}
+        .add-user-box .btn-add{background:#e8850e;color:#fff;border:none;padding:10px 20px;border-radius:12px;font-weight:600;cursor:pointer}
         .footer-actions{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:18px;border-top:1px solid #f0e8e0;flex-wrap:wrap;gap:12px}
         .footer-actions .status{font-size:14px;color:#8a7a6a}
         .footer-actions .status .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:6px}
         .dot.green{background:#34a853}
-        .btn-sm-secondary{background:#f0e8e0;color:#4a3724}
-        .btn-sm-secondary:hover{background:#e0d5c8}
-        .btn-sm-success{background:#34a853;color:#fff}
-        .btn-sm-success:hover{background:#2d9248}
-        .empty-state{text-align:center;padding:40px 20px;color:#a09080}
-        .empty-state .big-icon{font-size:64px;margin-bottom:12px}
-        .empty-state h3{color:#4a3724;margin-bottom:6px}
-        @media(max-width:600px){.container{padding:24px 18px}.header{flex-direction:column;align-items:flex-start}.header-actions{width:100%}.group-item{padding:12px 14px;flex-wrap:wrap}.group-item .badge{margin-top:4px}.footer-actions{flex-direction:column;align-items:stretch}.footer-actions .status{text-align:center}}
+        .dot.red{background:#ea4335}
+        @media(max-width:600px){.container{padding:24px 18px}.header{flex-direction:column;align-items:flex-start}.header-actions{width:100%}.settings-grid{grid-template-columns:1fr}.group-item{padding:10px 12px}.add-user-box input{width:100%}}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <div class="header-left"><span class="icon">😺</span><h2>پنل میو</h2></div>
+            <div class="header-left">
+                <span class="icon">😺</span>
+                <h2>پنل مدیریت میو</h2>
+            </div>
             <div class="header-actions">
-                <a href="/stop_bot" class="btn-sm btn-sm-danger">⏹ توقف ربات</a>
+                <span style="font-size:14px;color:#8a7a6a;">📱 {{ phone }}</span>
+                <a href="/stop_bot" class="btn-sm btn-sm-danger">⏹ توقف ربات من</a>
                 <a href="/logout" class="btn-sm btn-sm-outline">🚪 خروج</a>
             </div>
         </div>
 
-        <!-- تنظیمات قابلیت‌ها -->
+        <!-- ===== لیست کاربران ===== -->
         <div class="section">
-            <div class="section-title">⚙️ تنظیمات قابلیت‌ها</div>
-            <form method="post" action="/save_settings">
-                <div class="toggle-container">
-                    <div class="toggle-item">
-                        <input type="checkbox" name="meow_enabled" id="meow_enabled" {% if meow_enabled %}checked{% endif %}>
-                        <label for="meow_enabled">😺 میو</label>
-                    </div>
-                    <div class="toggle-item">
-                        <input type="checkbox" name="fish_enabled" id="fish_enabled" {% if fish_enabled %}checked{% endif %}>
-                        <label for="fish_enabled">🐱 پیشی</label>
-                    </div>
-                    <div class="toggle-item">
-                        <input type="checkbox" name="smuggle_enabled" id="smuggle_enabled" {% if smuggle_enabled %}checked{% endif %}>
-                        <label for="smuggle_enabled">📦 قاچاق میویی</label>
-                    </div>
-                </div>
-                <button type="submit" class="btn-save" style="padding:12px;font-size:16px">💾 ذخیره تنظیمات</button>
-            </form>
+            <div class="section-title">👥 مدیریت حساب‌ها</div>
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>شماره</th>
+                        <th>وضعیت</th>
+                        <th>میو</th>
+                        <th>پیشی</th>
+                        <th>عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in all_users %}
+                    <tr>
+                        <td>{{ user.phone }}</td>
+                        <td>
+                            {% if user.is_active %}
+                                <span class="badge-active">🟢 فعال</span>
+                            {% else %}
+                                <span class="badge-inactive">🔴 غیرفعال</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if user.meow_enabled %}✅{% else %}❌{% endif %}</td>
+                        <td>{% if user.fish_enabled %}✅{% else %}❌{% endif %}</td>
+                        <td>
+                            <form method="post" action="/toggle_user" style="display:inline;">
+                                <input type="hidden" name="phone" value="{{ user.phone }}">
+                                {% if user.is_active %}
+                                    <button type="submit" name="action" value="disable" class="btn-xs btn-xs-danger">غیرفعال</button>
+                                {% else %}
+                                    <button type="submit" name="action" value="enable" class="btn-xs btn-xs-success">فعال</button>
+                                {% endif %}
+                            </form>
+                            {% if user.phone != phone %}
+                            <form method="post" action="/remove_user" style="display:inline;">
+                                <input type="hidden" name="phone" value="{{ user.phone }}">
+                                <button type="submit" class="btn-xs btn-xs-danger" onclick="return confirm('حذف شود؟')">🗑️</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div class="add-user-box">
+                <span style="font-weight:600;color:#3d2c1b;">➕ اضافه کردن شماره جدید</span>
+                <p style="font-size:13px;color:#8a7a6a;margin:4px 0 10px;">از صفحه ورود خارج شوید و با شماره جدید لاگین کنید</p>
+                <a href="/" class="btn-sm btn-sm-success">🚪 رفتن به صفحه ورود</a>
+            </div>
         </div>
 
-        <!-- انتخاب گروه‌ها -->
+        <!-- ===== تنظیمات کاربر فعلی ===== -->
         <div class="section">
-            <div class="section-title">📋 گروه‌های فعال</div>
-            <form method="post" action="/save_groups">
+            <div class="section-title">⚙️ تنظیمات {{ phone }}</div>
+            <form method="post" action="/save_settings">
+                <!-- گروه‌ها -->
+                <p style="font-weight:600;color:#3d2c1b;margin-bottom:8px;">📋 گروه‌های انتخاب‌شده:</p>
                 <div class="group-list">
                     {% if groups %}
                         {% for group in groups %}
                             <label class="group-item {% if group.id|string in selected %}selected{% endif %}">
                                 <input type="checkbox" name="groups" value="{{ group.id }}" {% if group.id|string in selected %}checked{% endif %}>
-                                <div class="info"><div class="title">{{ group.title }}</div><div class="meta">👥 {{ group.members }} عضو</div></div>
+                                <div class="info">
+                                    <div class="title">{{ group.title }}</div>
+                                    <div class="meta">👥 {{ group.members }} عضو</div>
+                                </div>
                                 <span class="badge">{{ group.id }}</span>
                             </label>
                         {% endfor %}
                     {% else %}
-                        <div class="empty-state"><div class="big-icon">📭</div><h3>هیچ گروهی پیدا نشد</h3><p>اکانت شما در هیچ گروهی عضو نیست.</p></div>
+                        <p style="color:#a09080;">هیچ گروهی پیدا نشد</p>
                     {% endif %}
                 </div>
-                <button type="submit" class="btn-save">💾 ذخیره گروه‌ها</button>
+
+                <!-- قابلیت‌ها -->
+                <p style="font-weight:600;color:#3d2c1b;margin:16px 0 8px;">🎯 قابلیت‌ها:</p>
+                <div class="settings-grid">
+                    <div class="settings-item">
+                        <input type="checkbox" name="meow_enabled" {% if meow_enabled %}checked{% endif %}>
+                        <label>😺 میو</label>
+                        <span class="status {% if meow_enabled %}on{% else %}off{% endif %}">{% if meow_enabled %}فعال{% else %}غیرفعال{% endif %}</span>
+                    </div>
+                    <div class="settings-item">
+                        <input type="checkbox" name="fish_enabled" {% if fish_enabled %}checked{% endif %}>
+                        <label>🐱 پیشی</label>
+                        <span class="status {% if fish_enabled %}on{% else %}off{% endif %}">{% if fish_enabled %}فعال{% else %}غیرفعال{% endif %}</span>
+                    </div>
+                    <div class="settings-item">
+                        <input type="checkbox" name="smuggle_enabled" {% if smuggle_enabled %}checked{% endif %}>
+                        <label>📦 قاچاق</label>
+                        <span class="status {% if smuggle_enabled %}on{% else %}off{% endif %}">{% if smuggle_enabled %}فعال{% else %}غیرفعال{% endif %}</span>
+                    </div>
+                    <div class="settings-item" style="border:2px solid #e8850e;">
+                        <input type="checkbox" name="is_active" {% if is_active %}checked{% endif %}>
+                        <label style="color:#e8850e;">🔛 ربات فعال</label>
+                        <span class="status {% if is_active %}on{% else %}off{% endif %}">{% if is_active %}روشن{% else %}خاموش{% endif %}</span>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-save">💾 ذخیره تنظیمات</button>
             </form>
         </div>
 
         <div class="footer-actions">
-            <span class="status"><span class="dot green"></span> ربات: <span id="bot-status">{% if selected %}فعال{% else %}غیرفعال{% endif %}</span></span>
-            <div><a href="/" class="btn-sm btn-sm-secondary">🏠 صفحه اصلی</a></div>
+            <span class="status">
+                <span class="dot {% if is_active %}green{% else %}red{% endif %}"></span>
+                ربات: {% if is_active %}فعال{% else %}غیرفعال{% endif %}
+            </span>
+            <div>
+                <a href="/" class="btn-sm btn-sm-secondary">🏠 صفحه اصلی</a>
+            </div>
         </div>
     </div>
 </body>
