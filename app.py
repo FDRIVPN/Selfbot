@@ -202,90 +202,100 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (با تایمر ۳۰ ثانیه برای جلوگیری از خاموش شدن) ==========
+# ========== ربات سلف‌بات با ری‌استارت خودکار ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
-    session_string, selected_groups = get_user(phone)
-    if not session_string or not selected_groups:
-        print("❌ سشن یا گروه‌ها پیدا نشد")
-        selfbot_running = False
-        return
-
-    try:
-        chat_ids = [int(g) for g in selected_groups]
-    except:
-        chat_ids = []
-    if not chat_ids:
-        print("❌ هیچ گروهی انتخاب نشده")
-        selfbot_running = False
-        return
-
-    client = Client(
-        "selfbot",
-        session_string=session_string,
-        api_id=API_ID,
-        api_hash=API_HASH,
-        in_memory=True,
-        no_updates=True
-    )
-
-    try:
-        await client.start()
-        print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
-
-        valid_chats = []
-        async for dialog in client.get_dialogs():
-            if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-                if str(dialog.chat.id) in [str(cid) for cid in chat_ids]:
-                    valid_chats.append(dialog.chat.id)
-                    print(f"✅ گروه {dialog.chat.id} ({dialog.chat.title}) پیدا شد")
-
-        if not valid_chats:
-            print("❌ هیچ گروه معتبری پیدا نشد")
-            selfbot_running = False
-            return
-
-        save_user(phone, session_string, [str(cid) for cid in valid_chats])
-
-        # ========== حلقه اصلی با تایمر ۳۰ ثانیه ==========
-        while selfbot_running:
-            # ارسال میو به همه گروه‌ها
-            for chat_id in valid_chats:
-                if not selfbot_running:
-                    break
-                try:
-                    await client.send_message(chat_id, "میو")
-                    print(f"✅ میو به گروه {chat_id} ارسال شد")
-                except Exception as e:
-                    print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-                    if "Peer id invalid" in str(e) or "USER_NOT_PARTICIPANT" in str(e):
-                        valid_chats.remove(chat_id)
-                        save_user(phone, session_string, [str(cid) for cid in valid_chats])
-                        print(f"⚠️ گروه {chat_id} از لیست حذف شد")
-                await asyncio.sleep(3)  # بین هر گروه
-
-            if selfbot_running:
-                # به جای sleep طولانی، هر ۳۰ ثانیه یکبار چک می‌کنیم و لاگ می‌زنیم
-                # تا Railway فکر کنه برنامه زنده‌ست
-                print("⏳ منتظر ۵ دقیقه برای میو بعدی... (هر ۳۰ ثانیه لاگ می‌زنم)")
-                for _ in range(10):  # ۱۰ بار * ۳۰ ثانیه = ۵ دقیقه
-                    if not selfbot_running:
-                        break
-                    print(f"⏳ ربات زنده است... ({_+1}/10) - {int((_+1)*30)} ثانیه از ۳۰۰ ثانیه")
-                    await asyncio.sleep(30)  # هر ۳۰ ثانیه یکبار لاگ بزن
-                print("⏳ ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
-
-    except Exception as e:
-        print(f"❌ خطا در سلف‌بات: {e}")
-    finally:
-        if selfbot_running:
-            selfbot_running = False
-            print("🛑 ربات سلف‌بات متوقف شد")
+    while True:  # حلقه بی‌نهایت برای ری‌استارت خودکار
         try:
-            await client.stop()
-        except:
-            pass
+            session_string, selected_groups = get_user(phone)
+            if not session_string or not selected_groups:
+                print("❌ سشن یا گروه‌ها پیدا نشد، ۱۰ ثانیه بعد دوباره تلاش می‌کنم...")
+                await asyncio.sleep(10)
+                continue
+
+            try:
+                chat_ids = [int(g) for g in selected_groups]
+            except:
+                chat_ids = []
+            if not chat_ids:
+                print("❌ هیچ گروهی انتخاب نشده، ۱۰ ثانیه بعد دوباره تلاش می‌کنم...")
+                await asyncio.sleep(10)
+                continue
+
+            client = Client(
+                "selfbot",
+                session_string=session_string,
+                api_id=API_ID,
+                api_hash=API_HASH,
+                in_memory=True,
+                no_updates=True
+            )
+
+            try:
+                await client.start()
+                print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
+
+                valid_chats = []
+                async for dialog in client.get_dialogs():
+                    if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+                        if str(dialog.chat.id) in [str(cid) for cid in chat_ids]:
+                            valid_chats.append(dialog.chat.id)
+                            print(f"✅ گروه {dialog.chat.id} ({dialog.chat.title}) پیدا شد")
+
+                if not valid_chats:
+                    print("❌ هیچ گروه معتبری پیدا نشد، ۳۰ ثانیه بعد دوباره تلاش می‌کنم...")
+                    await client.stop()
+                    await asyncio.sleep(30)
+                    continue
+
+                save_user(phone, session_string, [str(cid) for cid in valid_chats])
+
+                # حلقه اصلی با تایمر ۳۰ ثانیه
+                while selfbot_running:
+                    # ارسال میو به همه گروه‌ها
+                    for chat_id in valid_chats:
+                        if not selfbot_running:
+                            break
+                        try:
+                            await client.send_message(chat_id, "میو")
+                            print(f"✅ میو به گروه {chat_id} ارسال شد")
+                        except Exception as e:
+                            print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
+                            if "Peer id invalid" in str(e) or "USER_NOT_PARTICIPANT" in str(e):
+                                valid_chats.remove(chat_id)
+                                save_user(phone, session_string, [str(cid) for cid in valid_chats])
+                                print(f"⚠️ گروه {chat_id} از لیست حذف شد")
+                        await asyncio.sleep(3)
+
+                    if selfbot_running:
+                        print("⏳ منتظر ۵ دقیقه برای میو بعدی... (هر ۳۰ ثانیه لاگ می‌زنم)")
+                        for _ in range(10):
+                            if not selfbot_running:
+                                break
+                            print(f"⏳ ربات زنده است... ({_+1}/10) - {int((_+1)*30)} ثانیه از ۳۰۰ ثانیه")
+                            await asyncio.sleep(30)
+                        print("⏳ ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
+
+                # اگر حلقه خارج شد (selfbot_running = False)، ربات رو متوقف کن
+                print("🛑 ربات سلف‌بات متوقف شد (دستور توقف)")
+                await client.stop()
+                break
+
+            except Exception as e:
+                print(f"❌ خطا در سلف‌بات: {e}")
+                try:
+                    await client.stop()
+                except:
+                    pass
+                print("🔄 ری‌استارت ربات در ۳۰ ثانیه...")
+                await asyncio.sleep(30)
+                continue
+
+        except Exception as e:
+            print(f"❌ خطای بحرانی در حلقه اصلی: {e}")
+            await asyncio.sleep(30)
+            continue
 
 def start_selfbot(phone):
     global selfbot_running, selfbot_thread
