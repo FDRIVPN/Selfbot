@@ -3,6 +3,7 @@ import json
 import sqlite3
 import asyncio
 import threading
+import time
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from flask import Flask, render_template, request, redirect, url_for, session
 from pyrogram import Client
@@ -89,6 +90,8 @@ def run_async(coro, timeout=120):
 
 # ========== دیکشنری برای نگهداری Clientهای فعال ==========
 active_clients = {}
+selfbot_running = False
+selfbot_thread = None
 
 # ========== توابع Pyrogram ==========
 async def send_code_async(phone):
@@ -179,9 +182,6 @@ async def get_groups_async(session_string):
         await client.start()
         groups = []
         async for dialog in client.get_dialogs():
-            # لاگ برای دیباگ (توی Railway Logs می‌بینی)
-            print(f"Chat: {dialog.chat.title} | Type: {dialog.chat.type} | ID: {dialog.chat.id}")
-
             if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
                 groups.append({
                     "id": str(dialog.chat.id),
@@ -199,6 +199,96 @@ async def get_groups_async(session_string):
                 await client.disconnect()
         except:
             pass
+
+# ========== ربات سلف‌بات (ارسال میو) ==========
+async def send_meow_to_group(client, chat_id):
+    """ارسال پیام میو به یک گروه"""
+    try:
+        await client.send_message(chat_id, "میو")
+        print(f"✅ میو به گروه {chat_id} ارسال شد")
+        return True
+    except Exception as e:
+        print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
+        return False
+
+async def selfbot_worker(phone):
+    """کارگر ربات سلف‌بات - در پس‌زمینه اجرا میشه"""
+    global selfbot_running
+    
+    # دریافت سشن و گروه‌ها از دیتابیس
+    session_string, selected_groups = get_user(phone)
+    if not session_string or not selected_groups:
+        print("❌ سشن یا گروه‌ها پیدا نشد")
+        selfbot_running = False
+        return
+
+    # تبدیل گروه‌های انتخابی به لیست اعداد
+    try:
+        chat_ids = [int(g) for g in selected_groups]
+    except:
+        chat_ids = []
+
+    if not chat_ids:
+        print("❌ هیچ گروهی انتخاب نشده")
+        selfbot_running = False
+        return
+
+    # ساخت کلاینت
+    client = Client(
+        "selfbot",
+        session_string=session_string,
+        api_id=API_ID,
+        api_hash=API_HASH,
+        in_memory=True,
+        no_updates=True
+    )
+
+    try:
+        await client.start()
+        print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
+        
+        while selfbot_running:
+            for chat_id in chat_ids:
+                if not selfbot_running:
+                    break
+                await send_meow_to_group(client, chat_id)
+                await asyncio.sleep(3)  # بین هر گروه ۳ ثانیه فاصله
+            
+            if selfbot_running:
+                # هر ۵ دقیقه یکبار تکرار کن
+                await asyncio.sleep(300)  # ۵ دقیقه = ۳۰۰ ثانیه
+                
+    except Exception as e:
+        print(f"❌ خطا در سلف‌بات: {e}")
+    finally:
+        try:
+            await client.stop()
+        except:
+            pass
+        selfbot_running = False
+        print("🛑 ربات سلف‌بات متوقف شد")
+
+def start_selfbot(phone):
+    """شروع ربات سلف‌بات در یک ترد جداگانه"""
+    global selfbot_running, selfbot_thread
+    
+    if selfbot_running:
+        print("⚠️ ربات از قبل روشن است")
+        return
+    
+    selfbot_running = True
+    selfbot_thread = threading.Thread(
+        target=lambda: run_async(selfbot_worker(phone)),
+        daemon=True
+    )
+    selfbot_thread.start()
+    print("🚀 ربات سلف‌بات شروع شد")
+
+def stop_selfbot():
+    """متوقف کردن ربات سلف‌بات"""
+    global selfbot_running
+    selfbot_running = False
+    print("🛑 توقف ربات درخواست شد")
 
 # ========== روت‌های Flask ==========
 @app.route('/')
@@ -295,10 +385,20 @@ def save_groups():
 
     selected = request.form.getlist('groups')
     save_user(phone, session_string, selected)
+    
+    # شروع ربات سلف‌بات بعد از ذخیره گروه‌ها
+    start_selfbot(phone)
+    
     return redirect(url_for('dashboard'))
+
+@app.route('/stop_bot')
+def stop_bot():
+    stop_selfbot()
+    return "ربات متوقف شد! <a href='/dashboard'>بازگشت</a>"
 
 @app.route('/logout')
 def logout():
+    stop_selfbot()
     phone = session.get('phone')
     if phone and phone in active_clients:
         try:
