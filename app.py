@@ -7,19 +7,21 @@ from pyrogram import Client
 from pyrogram.errors import (
     PhoneNumberInvalid,
     PhoneCodeInvalid,
-    PhoneCodeExpired,
-    SessionPasswordNeeded
+    SessionPasswordNeeded,
+    PhoneCodeExpired
 )
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+# ========== متغیرهای محیطی ==========
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 
 if not API_ID or not API_HASH:
-    raise ValueError("API_ID and API_HASH must be set in Railway")
+    raise ValueError("API_ID و API_HASH باید در Railway تنظیم شوند")
 
+# ========== دیتابیس (در /tmp برای Railway) ==========
 DB_PATH = "/tmp/users.db"
 
 def init_db():
@@ -57,44 +59,52 @@ def get_user(phone):
 
 init_db()
 
+# ========== توابع کمکی ==========
 def run_async(coro):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         return loop.run_until_complete(coro)
     finally:
         loop.close()
 
+# ========== توابع Pyrogram ==========
 async def send_code_async(phone):
-    async with Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True) as client:
-        try:
-            await client.send_code(phone)
-            return True
-        except PhoneNumberInvalid:
-            return False
+    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
+    await client.connect()
+    try:
+        await client.send_code(phone)
+        return True
+    except PhoneNumberInvalid:
+        return False
+    finally:
+        await client.disconnect()
 
 async def sign_in_async(phone, code, password=None):
-    async with Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True) as client:
-        try:
-            # ✅ اصلاح مهم: استفاده از named arguments
-            await client.sign_in(phone_number=phone, phone_code=code)
-        except SessionPasswordNeeded:
-            if password:
-                await client.check_password(password)
-            else:
-                return "need_password"
-        except PhoneCodeInvalid:
-            return "invalid_code"
-        except PhoneCodeExpired:
-            return "code_expired"
-        except Exception as e:
-            return f"error: {str(e)}"
-        
-        session_string = await client.export_session_string()
-        return session_string
+    client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
+    await client.connect()
+    try:
+        await client.sign_in(phone, code)
+    except SessionPasswordNeeded:
+        if password:
+            await client.check_password(password)
+        else:
+            return "need_password"
+    except PhoneCodeInvalid:
+        return "invalid_code"
+    except PhoneCodeExpired:
+        return "code_expired"
+    except Exception as e:
+        return f"error: {str(e)}"
+
+    session_string = await client.export_session_string()
+    await client.disconnect()
+    return session_string
 
 async def get_groups_async(session_string):
-    async with Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True) as client:
+    client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
+    try:
+        await client.start()
         groups = []
         async for dialog in client.get_dialogs():
             if dialog.chat.type in ["group", "supergroup"]:
@@ -104,7 +114,10 @@ async def get_groups_async(session_string):
                     "members": dialog.chat.members_count or 0
                 })
         return groups
+    finally:
+        await client.disconnect()
 
+# ========== روت‌های Flask ==========
 @app.route('/')
 def index():
     return render_template('login.html')
