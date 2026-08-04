@@ -25,7 +25,7 @@ if not API_ID or not API_HASH:
     raise ValueError("API_ID and API_HASH must be set in Railway")
 
 # ========== دیتابیس در مسیر دائمی ==========
-DB_DIR = "/app/data"
+DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
 if not os.path.exists(DB_DIR):
     os.makedirs(DB_DIR)
@@ -200,7 +200,7 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== ربات سلف‌بات (ارسال میو با get_chat اول) ==========
+# ========== ربات سلف‌بات (ارسال میو) ==========
 async def selfbot_worker(phone):
     global selfbot_running
 
@@ -232,15 +232,13 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
 
-        # اعتبارسنجی گروه‌ها با get_chat (برای ذخیره در کش کلاینت)
+        # اعتبارسنجی گروه‌ها با get_chat
         valid_chats = []
         for chat_id in chat_ids:
             try:
                 chat = await client.get_chat(chat_id)
                 valid_chats.append(chat_id)
                 print(f"✅ گروه {chat_id} ({chat.title}) معتبر است")
-            except PeerIdInvalid:
-                print(f"❌ گروه {chat_id} نامعتبر است (PeerIdInvalid)")
             except Exception as e:
                 print(f"❌ گروه {chat_id} نامعتبر است: {e}")
 
@@ -257,11 +255,14 @@ async def selfbot_worker(phone):
                 if not selfbot_running:
                     break
                 try:
-                    # الان کلاینت گروه رو در کش داره، پس پیام می‌فرسته
                     await client.send_message(chat_id, "میو")
                     print(f"✅ میو به گروه {chat_id} ارسال شد")
                 except Exception as e:
                     print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
+                    if "Peer id invalid" in str(e) or "USER_NOT_PARTICIPANT" in str(e):
+                        valid_chats.remove(chat_id)
+                        save_user(phone, session_string, [str(cid) for cid in valid_chats])
+                        print(f"⚠️ گروه {chat_id} از لیست حذف شد")
                 await asyncio.sleep(3)
 
             if selfbot_running:
