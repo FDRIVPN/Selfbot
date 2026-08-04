@@ -138,6 +138,7 @@ def run_async(coro, timeout=120):
 pending_clients = {}
 selfbot_tasks = {}
 meow_timers = {}
+smuggle_timers = {}  # برای ذخیره زمان پایان قاچاق
 
 # ========== توابع Pyrogram برای لاگین ==========
 async def send_code_async(phone):
@@ -246,8 +247,9 @@ async def get_groups_async(session_string):
         except:
             pass
 
-# ========== توابع کمکی ==========
+# ========== توابع کمکی ربات ==========
 def extract_meow_time(text):
+    """استخراج زمان از پاسخ میو"""
     match = re.search(r'(\d+)\s*[:：]\s*(\d+)', text)
     if match:
         return int(match.group(1)) * 60 + int(match.group(2))
@@ -262,22 +264,44 @@ def extract_meow_time(text):
         return int(match.group(1))
     return None
 
+def extract_smuggle_time(text):
+    """استخراج زمان از پاسخ قاچاق (مشابه میو)"""
+    return extract_meow_time(text)  # فعلاً همان منطق
+
 async def click_first_button(message):
+    """کلیک روی اولین دکمه (ردیف اول، ستون اول)"""
     if not message.reply_markup:
         return False
     try:
         await message.click(0, 0)
         print(f"✅ کلیک روی اولین دکمه انجام شد")
         return True
-    except IndexError:
-        print("⚠️ هیچ دکمه‌ای در ردیف اول وجود ندارد")
-        return False
     except Exception as e:
         print(f"❌ خطا در کلیک روی دکمه: {e}")
         return False
 
-# ========== ربات سلف‌بات با تشخیص ریپلای ==========
+async def click_button_by_text(message, keywords):
+    """کلیک روی دکمه‌ای که شامل یکی از کلمات کلیدی باشد"""
+    if not message.reply_markup:
+        return False
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    for row in message.reply_markup.inline_keyboard:
+        for btn in row:
+            for kw in keywords:
+                if kw in btn.text:
+                    try:
+                        await btn.click()
+                        print(f"✅ کلیک روی دکمه '{btn.text}' انجام شد")
+                        return True
+                    except Exception as e:
+                        print(f"❌ خطا: {e}")
+                        return False
+    return False
+
+# ========== ربات سلف‌بات (نسخه نهایی) ==========
 async def selfbot_worker(phone):
+    print(f"🔄 شروع selfbot_worker برای {phone}")
     while True:
         try:
             session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active = get_user(phone)
@@ -299,45 +323,49 @@ async def selfbot_worker(phone):
                 session_string=session_string,
                 api_id=API_ID,
                 api_hash=API_HASH,
-                in_memory=True,
-                no_updates=True
+                in_memory=True
             )
 
-            # ========== هندلر پیام‌های ربات توکنی ==========
+            # ========== هندلر زنده (با خواندن لحظه‌ای تنظیمات) ==========
             @client.on_message(filters.group & filters.user(BOT_USER_ID))
-            async def token_bot_handler(c: Client, message: Message):
-                if message.chat.id not in chat_ids:
+            async def live_handler(c: Client, message: Message):
+                # خواندن تنظیمات لحظه‌ای
+                _, selected_groups_now, meow_en, fish_en, smuggle_en, is_active_now = get_user(phone)
+                if not is_active_now:
                     return
-                
-                # ===== تشخیص ریپلای به خودمان =====
-                if not message.reply_to_message:
-                    print(f"📩 [{phone}] پیام ریپلای ندارد، نادیده گرفته شد")
-                    return
-                
                 try:
-                    me = await c.get_me()
-                    my_user_id = me.id
-                except Exception as e:
-                    print(f"❌ خطا در دریافت اطلاعات خودم: {e}")
+                    chat_ids_now = [int(g) for g in selected_groups_now]
+                except:
                     return
-                
-                if message.reply_to_message.from_user.id != my_user_id:
-                    print(f"📩 [{phone}] ریپلای به شخص دیگر است، نادیده گرفته شد")
+                if message.chat.id not in chat_ids_now:
                     return
-                
-                # ===== پردازش پیام =====
-                text = message.text or ""
-                print(f"📩 [{phone}] ✅ ریپلای به خودمان: {text[:50]}...")
 
-                if meow_enabled and "میو پوینت" in text and "بعد از" in text:
+                text = message.text or message.caption or ""
+                print(f"📩 [{phone}] پیام زنده: {text[:100]}")
+
+                # ===== میو =====
+                if meow_en and "میو پوینت" in text and "بعد از" in text:
                     wait_time = extract_meow_time(text)
                     if wait_time and wait_time > 0:
                         meow_timers[f"{phone}_{message.chat.id}"] = wait_time
-                        print(f"⏱️ [{phone}] تایم میو: {wait_time} ثانیه")
+                        print(f"⏱️ [{phone}] تایم میو ثبت شد: {wait_time} ثانیه")
 
-                if fish_enabled and "پیشی" in text:
-                    print(f"🐱 [{phone}] کلیک روی اولین دکمه...")
+                # ===== پیشی =====
+                if fish_en and "پیشی" in text:
+                    print(f"🐱 [{phone}] کلیک روی دکمه پیشی...")
                     await click_first_button(message)
+
+                # ===== قاچاق =====
+                if smuggle_en and "قاچاق" in text:
+                    if "شروع قاچاق میویی" in text:
+                        print(f"📦 [{phone}] کلیک شروع قاچاق...")
+                        await click_button_by_text(message, ["شروع قاچاق", "شروع"])
+                    elif "دریافت دستمزد" in text or "دستمزد" in text:
+                        print(f"💰 [{phone}] کلیک دریافت دستمزد...")
+                        if not await click_button_by_text(message, ["دریافت دستمزد", "دستمزد", "تایید"]):
+                            print(f"⚠️ دکمه دریافت دستمزد پیدا نشد")
+                    elif "زندان" in text or "جریمه" in text:
+                        print(f"🚨 [{phone}] پیام زندان/جریمه دریافت شد!")
 
             try:
                 await client.start()
@@ -358,16 +386,14 @@ async def selfbot_worker(phone):
                 # ========== حلقه میو ==========
                 async def meow_loop():
                     while True:
-                        _, _, meow_enabled_now, _, _, is_active_now = get_user(phone)
-                        if not is_active_now or not meow_enabled_now:
+                        _, _, meow_en_now, _, _, is_active_now = get_user(phone)
+                        if not is_active_now or not meow_en_now:
                             await asyncio.sleep(5)
                             continue
-                        
                         for chat_id in valid_chats:
                             try:
                                 await client.send_message(chat_id, "میو")
                                 print(f"😺 [{phone}] میو به {chat_id} ارسال شد")
-                                
                                 timer_key = f"{phone}_{chat_id}"
                                 for _ in range(15):
                                     _, _, _, _, _, is_active_now2 = get_user(phone)
@@ -391,7 +417,6 @@ async def selfbot_worker(phone):
                                         if not is_active_now4:
                                             break
                                         await asyncio.sleep(10)
-                                        
                             except Exception as e:
                                 print(f"❌ [{phone}] خطا در میو: {e}")
                                 await asyncio.sleep(60)
@@ -400,11 +425,10 @@ async def selfbot_worker(phone):
                 # ========== حلقه پیشی ==========
                 async def fish_loop():
                     while True:
-                        _, _, _, fish_enabled_now, _, is_active_now = get_user(phone)
-                        if not is_active_now or not fish_enabled_now:
+                        _, _, _, fish_en_now, _, is_active_now = get_user(phone)
+                        if not is_active_now or not fish_en_now:
                             await asyncio.sleep(5)
                             continue
-                        
                         for chat_id in valid_chats:
                             try:
                                 await client.send_message(chat_id, "پیشی")
@@ -412,16 +436,67 @@ async def selfbot_worker(phone):
                                 await asyncio.sleep(8)
                             except Exception as e:
                                 print(f"❌ [{phone}] خطا در پیشی: {e}")
-                        
                         for _ in range(600 // 10):
                             _, _, _, _, _, is_active_now2 = get_user(phone)
                             if not is_active_now2:
                                 break
                             await asyncio.sleep(10)
 
+                # ========== حلقه قاچاق ==========
+                async def smuggle_loop():
+                    while True:
+                        _, _, _, _, smuggle_en_now, is_active_now = get_user(phone)
+                        if not is_active_now or not smuggle_en_now:
+                            await asyncio.sleep(5)
+                            continue
+                        for chat_id in valid_chats:
+                            try:
+                                await client.send_message(chat_id, "قاچاق میویی")
+                                print(f"📦 [{phone}] قاچاق میویی به {chat_id} ارسال شد")
+                                timer_key = f"{phone}_{chat_id}"
+                                # منتظر پاسخ ربات و استخراج زمان
+                                for _ in range(15):
+                                    _, _, _, _, _, is_active_now2 = get_user(phone)
+                                    if not is_active_now2:
+                                        break
+                                    if timer_key in smuggle_timers:
+                                        wait = smuggle_timers.pop(timer_key)
+                                        print(f"⏱️ [{phone}] زمان قاچاق: {wait} ثانیه")
+                                        while wait > 0:
+                                            _, _, _, _, _, is_active_now3 = get_user(phone)
+                                            if not is_active_now3:
+                                                break
+                                            sleep_time = min(wait, 10)
+                                            await asyncio.sleep(sleep_time)
+                                            wait -= sleep_time
+                                        break
+                                    await asyncio.sleep(1)
+                                else:
+                                    # اگر زمان دریافت نشد، ۱ ساعت پیش‌فرض
+                                    print(f"⏳ [{phone}] زمان قاچاق مشخص نشد، ۱ ساعت صبر...")
+                                    for _ in range(3600 // 10):
+                                        _, _, _, _, _, is_active_now4 = get_user(phone)
+                                        if not is_active_now4:
+                                            break
+                                        await asyncio.sleep(10)
+
+                                if not get_user(phone)[5]:
+                                    break
+
+                                await client.send_message(chat_id, "قاچاق میویی دریافت دستمزد")
+                                print(f"💰 [{phone}] دستمزد قاچاق به {chat_id} درخواست شد")
+                                await asyncio.sleep(5)
+
+                            except Exception as e:
+                                print(f"❌ [{phone}] خطا در قاچاق: {e}")
+                                await asyncio.sleep(60)
+                        await asyncio.sleep(5)
+
+                # ========== شروع حلقه‌ها ==========
                 tasks = [
                     asyncio.create_task(meow_loop()),
-                    asyncio.create_task(fish_loop())
+                    asyncio.create_task(fish_loop()),
+                    asyncio.create_task(smuggle_loop())
                 ]
 
                 while True:
@@ -450,6 +525,7 @@ async def selfbot_worker(phone):
 
 # ========== مدیریت ربات‌ها ==========
 def start_all_bots():
+    print("🚀 شروع همه ربات‌ها...")
     users = get_all_users()
     for user in users:
         if user["is_active"] and user["session_string"] and user["selected_groups"]:
@@ -483,9 +559,7 @@ def send_code_route():
     phone = request.form.get('phone', '').strip()
     if not phone:
         return "شماره موبایل الزامی است", 400
-    
     result = run_async(send_code_async(phone))
-    
     if isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif result is None:
@@ -498,12 +572,9 @@ def send_code_route():
 def verify_code():
     code = request.form.get('code', '').strip()
     phone = session.get('phone')
-    
     if not phone:
         return redirect(url_for('index'))
-    
     result = run_async(sign_in_async(phone, code))
-    
     if result == "need_password":
         return render_template('password.html')
     elif result == "invalid_code":
@@ -534,12 +605,9 @@ def verify_code():
 def verify_password():
     password = request.form.get('password', '').strip()
     phone = session.get('phone')
-    
     if not phone or not password:
         return redirect(url_for('index'))
-    
     result = run_async(check_password_async(phone, password))
-    
     if isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
@@ -555,50 +623,35 @@ def dashboard():
     phone = session.get('phone')
     if not phone or not session.get('authenticated'):
         return redirect(url_for('index'))
-    
     session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, is_active = get_user(phone)
     if not session_string:
         session.clear()
         return redirect(url_for('index'))
-    
     groups = run_async(get_groups_async(session_string))
     if isinstance(groups, str) and groups.startswith("error"):
         return f"خطا در دریافت گروه‌ها: {groups}", 500
-    
     all_users = get_all_users()
-    
     return render_template('dashboard.html', 
-        groups=groups, 
-        selected=selected,
-        meow_enabled=meow_enabled,
-        fish_enabled=fish_enabled,
-        smuggle_enabled=smuggle_enabled,
-        is_active=is_active,
-        phone=phone,
-        all_users=all_users
-    )
+        groups=groups, selected=selected, meow_enabled=meow_enabled,
+        fish_enabled=fish_enabled, smuggle_enabled=smuggle_enabled,
+        is_active=is_active, phone=phone, all_users=all_users)
 
 @app.route('/save_settings', methods=['POST'])
 def save_settings():
     phone = session.get('phone')
     if not phone or not session.get('authenticated'):
         return redirect(url_for('index'))
-    
     session_string, selected, _, _, _, _ = get_user(phone)
     if not session_string:
         return redirect(url_for('index'))
-    
     meow_enabled = request.form.get('meow_enabled') == 'on'
     fish_enabled = request.form.get('fish_enabled') == 'on'
     smuggle_enabled = request.form.get('smuggle_enabled') == 'on'
     is_active = request.form.get('is_active') == 'on'
     selected_groups = request.form.getlist('groups')
-    
     save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
-    
     stop_all_bots()
     start_all_bots()
-    
     return redirect(url_for('dashboard'))
 
 @app.route('/toggle_user', methods=['POST'])
@@ -606,10 +659,8 @@ def toggle_user():
     target_phone = request.form.get('phone')
     action = request.form.get('action')
     admin_phone = session.get('phone')
-    
     if not admin_phone or not session.get('authenticated'):
         return redirect(url_for('index'))
-    
     session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, is_active = get_user(target_phone)
     if session_string:
         new_status = action == 'enable'
@@ -618,23 +669,18 @@ def toggle_user():
             start_all_bots()
         else:
             stop_bot(target_phone)
-    
     return redirect(url_for('dashboard'))
 
 @app.route('/remove_user', methods=['POST'])
 def remove_user():
     target_phone = request.form.get('phone')
     admin_phone = session.get('phone')
-    
     if not admin_phone or not session.get('authenticated'):
         return redirect(url_for('index'))
-    
     if target_phone == admin_phone:
         return "نمی‌توانید خودتان را حذف کنید!", 400
-    
     stop_bot(target_phone)
     delete_user(target_phone)
-    
     return redirect(url_for('dashboard'))
 
 @app.route('/stop_bot')
