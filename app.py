@@ -3,7 +3,6 @@ import json
 import sqlite3
 import asyncio
 import threading
-import time
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from flask import Flask, render_template, request, redirect, url_for, session
 from pyrogram import Client
@@ -201,16 +200,6 @@ async def get_groups_async(session_string):
             pass
 
 # ========== ربات سلف‌بات (ارسال میو) ==========
-async def send_meow_to_group(client, chat_id):
-    """ارسال پیام میو به یک گروه"""
-    try:
-        await client.send_message(chat_id, "میو")
-        print(f"✅ میو به گروه {chat_id} ارسال شد")
-        return True
-    except Exception as e:
-        print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
-        return False
-
 async def selfbot_worker(phone):
     """کارگر ربات سلف‌بات - در پس‌زمینه اجرا میشه"""
     global selfbot_running
@@ -247,15 +236,33 @@ async def selfbot_worker(phone):
         await client.start()
         print(f"✅ ربات سلف‌بات برای {phone} روشن شد")
         
+        # اعتبارسنجی گروه‌ها
+        valid_chats = []
+        for chat_id in chat_ids:
+            try:
+                chat = await client.get_chat(chat_id)
+                valid_chats.append(chat_id)
+                print(f"✅ گروه {chat_id} معتبر است")
+            except Exception as e:
+                print(f"❌ گروه {chat_id} معتبر نیست: {e}")
+        
+        if not valid_chats:
+            print("❌ هیچ گروه معتبری وجود ندارد")
+            selfbot_running = False
+            return
+        
         while selfbot_running:
-            for chat_id in chat_ids:
+            for chat_id in valid_chats:
                 if not selfbot_running:
                     break
-                await send_meow_to_group(client, chat_id)
+                try:
+                    await client.send_message(chat_id, "میو")
+                    print(f"✅ میو به گروه {chat_id} ارسال شد")
+                except Exception as e:
+                    print(f"❌ خطا در ارسال میو به {chat_id}: {e}")
                 await asyncio.sleep(3)  # بین هر گروه ۳ ثانیه فاصله
             
             if selfbot_running:
-                # هر ۵ دقیقه یکبار تکرار کن
                 await asyncio.sleep(300)  # ۵ دقیقه = ۳۰۰ ثانیه
                 
     except Exception as e:
