@@ -3,6 +3,13 @@ import json
 import sqlite3
 import asyncio
 from flask import Flask, render_template, request, redirect, url_for, session
+from pyrogram import Client
+from pyrogram.errors import (
+    PhoneNumberInvalid,
+    PhoneCodeInvalid,
+    SessionPasswordNeeded,
+    PhoneCodeExpired
+)
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -52,7 +59,7 @@ def get_user(phone):
 
 init_db()
 
-# ========== توابع کمکی ==========
+# ========== توابع کمکی برای اجرای async ==========
 def run_async(coro):
     try:
         loop = asyncio.new_event_loop()
@@ -61,9 +68,8 @@ def run_async(coro):
     finally:
         loop.close()
 
+# ========== توابع احراز هویت ==========
 async def send_code_async(phone):
-    from pyrogram import Client
-    from pyrogram.errors import PhoneNumberInvalid
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
@@ -75,13 +81,10 @@ async def send_code_async(phone):
         await client.disconnect()
 
 async def sign_in_async(phone, code, password=None):
-    from pyrogram import Client
-    from pyrogram.errors import (
-        PhoneCodeInvalid, PhoneCodeExpired, SessionPasswordNeeded
-    )
     client = Client("temp", api_id=API_ID, api_hash=API_HASH, in_memory=True)
     await client.connect()
     try:
+        # درست: await client.sign_in(phone, code)
         await client.sign_in(phone, code)
     except SessionPasswordNeeded:
         if password:
@@ -92,12 +95,15 @@ async def sign_in_async(phone, code, password=None):
         return "invalid_code"
     except PhoneCodeExpired:
         return "code_expired"
+    except Exception as e:
+        print(f"❌ خطا در sign_in: {e}")
+        return f"error: {str(e)}"
+
     session_string = await client.export_session_string()
     await client.disconnect()
     return session_string
 
 async def get_groups_async(session_string):
-    from pyrogram import Client
     client = Client("session", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True)
     try:
         await client.start()
@@ -144,6 +150,7 @@ def verify_code():
     elif result == "code_expired":
         return "کد تایید منقضی شده است", 400
     elif isinstance(result, str) and result.startswith("BA"):
+        # ذخیره سشن و هدایت به داشبورد
         save_user(phone, result)
         session['session_string'] = result
         return redirect(url_for('dashboard'))
@@ -189,5 +196,6 @@ def save_groups():
     save_user(phone, session.get('session_string'), selected)
     return "تنظیمات با موفقیت ذخیره شد! <a href='/dashboard'>بازگشت</a>"
 
+# ========== اجرا ==========
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
