@@ -3,9 +3,8 @@ import json
 import sqlite3
 import asyncio
 import threading
-import re
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatType
@@ -14,7 +13,6 @@ from pyrogram.errors import (
     PhoneCodeInvalid,
     PhoneCodeExpired,
     SessionPasswordNeeded,
-    PeerIdInvalid
 )
 
 app = Flask(__name__)
@@ -22,17 +20,16 @@ app.secret_key = os.getenv("SECRET_KEY", "change-this-in-production-12345")
 
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
-
 if not API_ID or not API_HASH:
-    raise ValueError("API_ID and API_HASH must be set in Railway")
+    raise ValueError("API_ID and API_HASH must be set")
 
-BOT_USER_ID = 8299996037
+BOT_USER_ID = 8299996037  # آیدی ربات بازی
 
 DB_DIR = "/app/data" if os.getenv("RAILWAY_ENV") else "data"
 DB_PATH = os.path.join(DB_DIR, "users.db")
-if not os.path.exists(DB_DIR):
-    os.makedirs(DB_DIR)
+os.makedirs(DB_DIR, exist_ok=True)
 
+# ======================= دیتابیس =======================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -55,47 +52,62 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_user(phone, session_string, selected_groups=None, meow_enabled=True, fish_enabled=True, smuggle_enabled=True, is_active=True):
+def save_user(phone, session_string, selected_groups=None,
+              meow_enabled=True, fish_enabled=True, smuggle_enabled=True, is_active=True):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        '''INSERT OR REPLACE INTO users 
+    c.execute('''
+        INSERT OR REPLACE INTO users
         (phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?)''',
-        (phone, session_string, json.dumps(selected_groups) if selected_groups else None,
-         1 if meow_enabled else 0, 1 if fish_enabled else 0, 1 if smuggle_enabled else 0,
-         1 if is_active else 0)
-    )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        phone, session_string,
+        json.dumps(selected_groups) if selected_groups else None,
+        1 if meow_enabled else 0,
+        1 if fish_enabled else 0,
+        1 if smuggle_enabled else 0,
+        1 if is_active else 0
+    ))
     conn.commit()
     conn.close()
-    print(f"💾 اطلاعات کاربر {phone} ذخیره شد")
 
 def get_user(phone):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active FROM users WHERE phone=?', (phone,))
+    c.execute('''SELECT session_string, selected_groups, meow_enabled,
+                 fish_enabled, smuggle_enabled, is_active
+                 FROM users WHERE phone=?''', (phone,))
     row = c.fetchone()
     conn.close()
     if row:
-        return row[0], json.loads(row[1]) if row[1] else [], bool(row[2]), bool(row[3]), bool(row[4]), bool(row[5])
-    return None, [], True, True, True, False
+        return {
+            "session_string": row[0],
+            "selected_groups": json.loads(row[1]) if row[1] else [],
+            "meow_enabled": bool(row[2]),
+            "fish_enabled": bool(row[3]),
+            "smuggle_enabled": bool(row[4]),
+            "is_active": bool(row[5])
+        }
+    return None
 
 def get_all_users():
+    """فقط اطلاعات غیرحساس را برمی‌گرداند (بدون session string)"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active FROM users')
+    c.execute('''SELECT phone, selected_groups, meow_enabled,
+                 fish_enabled, smuggle_enabled, is_active FROM users''')
     rows = c.fetchall()
     conn.close()
     users = []
     for row in rows:
+        groups = json.loads(row[1]) if row[1] else []
         users.append({
             "phone": row[0],
-            "session_string": row[1],
-            "selected_groups": json.loads(row[2]) if row[2] else [],
-            "meow_enabled": bool(row[3]),
-            "fish_enabled": bool(row[4]),
-            "smuggle_enabled": bool(row[5]),
-            "is_active": bool(row[6])
+            "groups_count": len(groups),
+            "meow_enabled": bool(row[2]),
+            "fish_enabled": bool(row[3]),
+            "smuggle_enabled": bool(row[4]),
+            "is_active": bool(row[5])
         })
     return users
 
@@ -109,17 +121,14 @@ def delete_user(phone):
 init_db()
 print(f"✅ دیتابیس در {DB_PATH} آماده شد")
 
+# ======================= Event Loop همگانی =======================
 ASYNC_LOOP = asyncio.new_event_loop()
 
 def _async_loop_worker():
     asyncio.set_event_loop(ASYNC_LOOP)
     ASYNC_LOOP.run_forever()
 
-threading.Thread(
-    target=_async_loop_worker,
-    name="pyrogram-event-loop",
-    daemon=True
-).start()
+threading.Thread(target=_async_loop_worker, name="pyrogram-event-loop", daemon=True).start()
 
 def run_async(coro, timeout=120):
     future = asyncio.run_coroutine_threadsafe(coro, ASYNC_LOOP)
@@ -131,11 +140,10 @@ def run_async(coro, timeout=120):
     except Exception as e:
         return f"error: {str(e)}"
 
-pending_clients = {}
-selfbot_tasks = {}
-meow_timers = {}
-smuggle_timers = {}
+pending_clients = {}       # موقت برای احراز هویت
+selfbot_tasks = {}         # phone -> asyncio.Task
 
+# ======================= توابع کمکی Pyrogram =======================
 async def send_code_async(phone):
     if phone in pending_clients:
         try:
@@ -179,11 +187,9 @@ async def sign_in_async(phone, code):
             return "error: session expired, please resend code"
 
     try:
-        await client.sign_in(
-            phone_number=phone,
-            phone_code_hash=phone_code_hash,
-            phone_code=code
-        )
+        await client.sign_in(phone_number=phone,
+                             phone_code_hash=phone_code_hash,
+                             phone_code=code)
         session_string = await client.export_session_string()
         await client.disconnect()
         pending_clients.pop(phone, None)
@@ -205,7 +211,7 @@ async def sign_in_async(phone, code):
 
 async def check_password_async(phone, password):
     if phone not in pending_clients:
-        return "error: session expired, please resend code"
+        return "error: session expired"
 
     client = pending_clients[phone]["client"]
     if not client.is_connected:
@@ -213,7 +219,7 @@ async def check_password_async(phone, password):
             await client.connect()
         except:
             pending_clients.pop(phone, None)
-            return "error: session expired, please resend code"
+            return "error: session expired"
 
     try:
         await client.check_password(password)
@@ -227,14 +233,8 @@ async def check_password_async(phone, password):
         return f"error: {str(e)}"
 
 async def get_groups_async(session_string):
-    client = Client(
-        "session",
-        session_string=session_string,
-        api_id=API_ID,
-        api_hash=API_HASH,
-        in_memory=True,
-        no_updates=True
-    )
+    client = Client("temp_groups", session_string=session_string,
+                    api_id=API_ID, api_hash=API_HASH, in_memory=True, no_updates=True)
     try:
         await client.start()
         groups = []
@@ -257,20 +257,11 @@ async def get_groups_async(session_string):
         except:
             pass
 
-def extract_meow_time(text):
-    match = re.search(r'(\d+)\s*[:：]\s*(\d+)', text)
-    if match:
-        return int(match.group(1)) * 60 + int(match.group(2))
-    match = re.search(r'(\d+)\s*دقیقه\s*و\s*(\d+)\s*ثانیه', text)
-    if match:
-        return int(match.group(1)) * 60 + int(match.group(2))
-    match = re.search(r'(\d+)\s*دقیقه', text)
-    if match:
-        return int(match.group(1)) * 60
-    match = re.search(r'(\d+)\s*ثانیه', text)
-    if match:
-        return int(match.group(1))
-    return None
+# ======================= فیلتر و کلیک روی دکمه‌ها =======================
+def create_chat_filter(chat_ids):
+    async def func(flt, client, message):
+        return message.chat.id in chat_ids
+    return filters.create(func)
 
 async def click_first_button(message):
     if not message.reply_markup:
@@ -298,209 +289,190 @@ async def click_button_by_text(message, keywords):
                         return False
     return False
 
-# ========== فیلتر سفارشی برای گروه‌های مجاز ==========
-def create_chat_filter(chat_ids):
-    async def func(flt, client, message):
-        return message.chat.id in chat_ids
-    return filters.create(func)
-
-# ========== ربات سلف‌بات ==========
+# ======================= سلف‌بات Worker =======================
 async def selfbot_worker(phone):
-    print(f"🔄 شروع selfbot_worker برای {phone}")
+    print(f"🔄 worker شروع برای {phone}")
     while True:
+        user = get_user(phone)
+        if not user or not user["is_active"] or not user["session_string"] or not user["selected_groups"]:
+            await asyncio.sleep(30)
+            continue
+
         try:
-            session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active = get_user(phone)
-            
-            if not session_string or not selected_groups or not is_active:
-                await asyncio.sleep(30)
-                continue
+            chat_ids = [int(g) for g in user["selected_groups"]]
+        except:
+            chat_ids = []
+        if not chat_ids:
+            await asyncio.sleep(30)
+            continue
 
-            try:
-                chat_ids = [int(g) for g in selected_groups]
-            except:
-                chat_ids = []
-            if not chat_ids:
-                await asyncio.sleep(30)
-                continue
+        client = Client(
+            f"selfbot_{phone}",
+            session_string=user["session_string"],
+            api_id=API_ID,
+            api_hash=API_HASH,
+            in_memory=True
+        )
 
-            # ========== no_updates=False (پیش‌فرض) برای دریافت پیام‌ها ==========
-            client = Client(
-                f"selfbot_{phone}",
-                session_string=session_string,
-                api_id=API_ID,
-                api_hash=API_HASH,
-                in_memory=True
-            )
+        chat_filter = create_chat_filter(chat_ids)
 
-            # فیلتر گروه‌های مجاز
-            chat_filter = create_chat_filter(chat_ids)
+        @client.on_message(chat_filter & filters.user(BOT_USER_ID))
+        async def live_handler(c: Client, message: Message):
+            # خواندن تنظیمات لحظه‌ای (ممکن است در حین اجرا تغییر کند)
+            u = get_user(phone)
+            if not u or not u["is_active"]:
+                return
+            text = message.text or ""
+            print(f"📩 [{phone}] {text[:80]}")
 
-            @client.on_message(chat_filter & filters.user(BOT_USER_ID))
-            async def live_handler(c: Client, message: Message):
-                _, _, meow_en, fish_en, smuggle_en, _ = get_user(phone)
-                text = message.text or ""
-                print(f"📩 [{phone}] پیام زنده: {text[:80]}")
+            if u["meow_enabled"] and "میو پوینت" in text:
+                await click_first_button(message)
+            if u["fish_enabled"] and "پیشی" in text:
+                await click_first_button(message)
+            if u["smuggle_enabled"] and "قاچاق" in text:
+                if "شروع قاچاق میویی" in text:
+                    await click_button_by_text(message, ["شروع قاچاق", "شروع"])
+                elif "دریافت دستمزد" in text:
+                    await click_button_by_text(message, ["دریافت دستمزد", "تایید"])
 
-                # ===== میو: فقط کلیک روی دکمه برداشت (اگر دکمه داره) =====
-                if meow_en and "میو پوینت" in text:
-                    print(f"😺 [{phone}] کلیک روی دکمه میو...")
-                    await click_first_button(message)
-
-                # ===== پیشی =====
-                if fish_en and "پیشی" in text:
-                    print(f"🐱 [{phone}] کلیک روی دکمه پیشی...")
-                    await click_first_button(message)
-
-                # ===== قاچاق =====
-                if smuggle_en and "قاچاق" in text:
-                    if "شروع قاچاق میویی" in text:
-                        await click_button_by_text(message, ["شروع قاچاق", "شروع"])
-                    elif "دریافت دستمزد" in text:
-                        await click_button_by_text(message, ["دریافت دستمزد", "تایید"])
-
-            try:
-                await client.start()
-                print(f"✅ ربات برای {phone} روشن شد")
-
-                valid_chats = []
-                async for dialog in client.get_dialogs():
-                    if dialog.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-                        if str(dialog.chat.id) in [str(cid) for cid in chat_ids]:
-                            valid_chats.append(dialog.chat.id)
-                            print(f"✅ [{phone}] گروه {dialog.chat.id} پیدا شد")
-
-                if not valid_chats:
-                    await client.stop()
-                    await asyncio.sleep(30)
+        async def meow_loop():
+            while True:
+                u = get_user(phone)
+                if not u or not u["is_active"] or not u["meow_enabled"]:
+                    await asyncio.sleep(10)
                     continue
-
-                # ========== حلقه میو (هر ۵ دقیقه) ==========
-                async def meow_loop():
-                    while True:
-                        _, _, meow_en_now, _, _, is_active_now = get_user(phone)
-                        if not is_active_now or not meow_en_now:
-                            await asyncio.sleep(5)
-                            continue
-                        for chat_id in valid_chats:
-                            try:
-                                await client.send_message(chat_id, "میو")
-                                print(f"😺 [{phone}] میو به {chat_id} ارسال شد")
-                            except Exception as e:
-                                print(f"❌ [{phone}] خطا در میو: {e}")
-                            await asyncio.sleep(3)  # فاصله بین گروه‌ها
-                        # ۵ دقیقه صبر بعد از ارسال به همه گروه‌ها
-                        for _ in range(300 // 10):
-                            if not get_user(phone)[5]:
-                                break
-                            await asyncio.sleep(10)
-                        print(f"⏱️ [{phone}] ۵ دقیقه گذشت، دوباره میو می‌فرستم...")
-
-                # ========== حلقه پیشی (هر ۱۰ دقیقه) ==========
-                async def fish_loop():
-                    while True:
-                        _, _, _, fish_en_now, _, is_active_now = get_user(phone)
-                        if not is_active_now or not fish_en_now:
-                            await asyncio.sleep(5)
-                            continue
-                        for chat_id in valid_chats:
-                            try:
-                                await client.send_message(chat_id, "پیشی")
-                                print(f"🐱 [{phone}] پیشی به {chat_id} ارسال شد")
-                                await asyncio.sleep(8)
-                            except Exception as e:
-                                print(f"❌ [{phone}] خطا در پیشی: {e}")
-                        for _ in range(600 // 10):
-                            if not get_user(phone)[5]:
-                                break
-                            await asyncio.sleep(10)
-
-                # ========== حلقه قاچاق (هر ۱ ساعت) ==========
-                async def smuggle_loop():
-                    while True:
-                        _, _, _, _, smuggle_en_now, is_active_now = get_user(phone)
-                        if not is_active_now or not smuggle_en_now:
-                            await asyncio.sleep(5)
-                            continue
-                        for chat_id in valid_chats:
-                            try:
-                                await client.send_message(chat_id, "قاچاق میویی")
-                                print(f"📦 [{phone}] قاچاق میویی به {chat_id} ارسال شد")
-                                await asyncio.sleep(5)
-                                for _ in range(3600 // 10):
-                                    if not get_user(phone)[5]:
-                                        break
-                                    await asyncio.sleep(10)
-                                if not get_user(phone)[5]:
-                                    break
-                                await client.send_message(chat_id, "قاچاق میویی دریافت دستمزد")
-                                print(f"💰 [{phone}] دستمزد قاچاق به {chat_id} درخواست شد")
-                                await asyncio.sleep(5)
-                            except Exception as e:
-                                print(f"❌ [{phone}] خطا در قاچاق: {e}")
-                                await asyncio.sleep(60)
-                        await asyncio.sleep(5)
-
-                tasks = [
-                    asyncio.create_task(meow_loop()),
-                    asyncio.create_task(fish_loop()),
-                    asyncio.create_task(smuggle_loop())
-                ]
-
-                while True:
-                    if not get_user(phone)[5]:
+                for cid in chat_ids:
+                    try:
+                        await client.send_message(cid, "میو")
+                        await asyncio.sleep(3)
+                    except Exception as e:
+                        print(f"❌ میو {phone}: {e}")
+                # انتظار ۵ دقیقه با قابلیت توقف سریع
+                for _ in range(300 // 5):
+                    if not get_user(phone) or not get_user(phone)["is_active"]:
                         break
                     await asyncio.sleep(5)
 
-                for t in tasks:
-                    t.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                await client.stop()
-                print(f"🛑 ربات برای {phone} متوقف شد")
+        async def fish_loop():
+            while True:
+                u = get_user(phone)
+                if not u or not u["is_active"] or not u["fish_enabled"]:
+                    await asyncio.sleep(10)
+                    continue
+                for cid in chat_ids:
+                    try:
+                        await client.send_message(cid, "پیشی")
+                        await asyncio.sleep(8)
+                    except Exception as e:
+                        print(f"❌ پیشی {phone}: {e}")
+                for _ in range(600 // 5):
+                    if not get_user(phone) or not get_user(phone)["is_active"]:
+                        break
+                    await asyncio.sleep(5)
 
-            except Exception as e:
-                print(f"❌ [{phone}] خطا: {e}")
-                try:
-                    await client.stop()
-                except:
-                    pass
+        async def smuggle_loop():
+            while True:
+                u = get_user(phone)
+                if not u or not u["is_active"] or not u["smuggle_enabled"]:
+                    await asyncio.sleep(10)
+                    continue
+
+                # فاز اول: شروع قاچاق برای همه گروه‌ها
+                for cid in chat_ids:
+                    try:
+                        await client.send_message(cid, "قاچاق میویی")
+                        await asyncio.sleep(5)
+                    except Exception as e:
+                        print(f"❌ شروع قاچاق {phone}: {e}")
+
+                # انتظار ۱ ساعت (قابل توقف در بازه‌های ۱۰ ثانیه)
+                for _ in range(3600 // 10):
+                    u = get_user(phone)
+                    if not u or not u["is_active"]:
+                        break
+                    await asyncio.sleep(10)
+                if not get_user(phone) or not get_user(phone)["is_active"]:
+                    continue
+
+                # فاز دوم: دریافت دستمزد برای همه گروه‌ها
+                for cid in chat_ids:
+                    try:
+                        await client.send_message(cid, "قاچاق میویی دریافت دستمزد")
+                        await asyncio.sleep(5)
+                    except Exception as e:
+                        print(f"❌ دستمزد قاچاق {phone}: {e}")
+
+                # وقفه کوتاه پیش از شروع چرخه بعدی
                 await asyncio.sleep(30)
 
-        except Exception as e:
-            print(f"❌ [{phone}] خطای بحرانی: {e}")
-            await asyncio.sleep(30)
+        try:
+            await client.start()
+            print(f"✅ ربات {phone} آنلاین شد")
 
-# ========== مدیریت ربات‌ها ==========
+            # اطمینان از وجود گروه‌ها (اختیاری)
+            valid_chats = []
+            async for dialog in client.get_dialogs():
+                if dialog.chat.id in chat_ids:
+                    valid_chats.append(dialog.chat.id)
+
+            # اجرای همزمان سه حلقه
+            meow_task = asyncio.create_task(meow_loop())
+            fish_task = asyncio.create_task(fish_loop())
+            smuggle_task = asyncio.create_task(smuggle_loop())
+
+            # منتظر بمانیم تا حساب غیرفعال شود یا تسک کنسل شود
+            while get_user(phone) and get_user(phone)["is_active"]:
+                await asyncio.sleep(5)
+
+        except asyncio.CancelledError:
+            print(f"🛑 تسک {phone} کنسل شد")
+        except Exception as e:
+            print(f"❌ خطا در worker {phone}: {e}")
+        finally:
+            # کنسل کردن حلقه‌ها
+            for t in [meow_task, fish_task, smuggle_task]:
+                t.cancel()
+            await asyncio.gather(meow_task, fish_task, smuggle_task, return_exceptions=True)
+            try:
+                if client.is_initialized:
+                    await client.stop()
+                elif client.is_connected:
+                    await client.disconnect()
+            except:
+                pass
+            print(f"🛑 ربات {phone} متوقف شد")
+
+        # قبل از تلاش مجدد، کمی صبر کن
+        await asyncio.sleep(30)
+
+# ======================= مدیریت ربات‌ها =======================
 def start_all_bots():
-    """شروع همه ربات‌های فعال"""
-    print("🚀 شروع همه ربات‌ها...")
+    print("🚀 راه‌اندازی همه ربات‌های فعال...")
     users = get_all_users()
     started = 0
     for user in users:
-        if user["is_active"] and user["session_string"] and user["selected_groups"]:
-            phone = user["phone"]
+        phone = user["phone"]
+        # فقط اگر فعال باشد و session داشته باشد (از طریق get_user چک می‌کنیم)
+        full = get_user(phone)
+        if full and full["is_active"] and full["session_string"] and full["selected_groups"]:
             if phone not in selfbot_tasks or selfbot_tasks[phone].done():
-                print(f"🚀 شروع ربات برای {phone}")
                 task = asyncio.run_coroutine_threadsafe(selfbot_worker(phone), ASYNC_LOOP)
                 selfbot_tasks[phone] = task
                 started += 1
-            else:
-                print(f"ℹ️ ربات {phone} در حال اجراست")
-    print(f"✅ {started} ربات شروع شد")
+    print(f"✅ {started} ربات اجرا شد")
 
 def stop_all_bots():
-    for phone in list(selfbot_tasks.keys()):
-        if not selfbot_tasks[phone].done():
-            selfbot_tasks[phone].cancel()
+    for phone, task in list(selfbot_tasks.items()):
+        if not task.done():
+            task.cancel()
     selfbot_tasks.clear()
-    print("🛑 همه ربات‌ها متوقف شدند")
 
 def stop_bot(phone):
     if phone in selfbot_tasks and not selfbot_tasks[phone].done():
         selfbot_tasks[phone].cancel()
-        selfbot_tasks.pop(phone, None)
-        print(f"🛑 ربات {phone} متوقف شد")
+        del selfbot_tasks[phone]
 
-# ========== روت‌های Flask ==========
+# ======================= روت‌های Flask =======================
 @app.route('/')
 def index():
     session.clear()
@@ -526,30 +498,23 @@ def verify_code():
     phone = session.get('phone')
     if not phone:
         return redirect(url_for('index'))
-    
+
     result = run_async(sign_in_async(phone, code))
-    
+
     if result == "need_password":
         return render_template('password.html')
     elif result == "invalid_code":
         return "کد تایید نامعتبر است", 400
     elif result == "code_expired":
-        if phone in pending_clients:
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(pending_clients[phone]["client"].disconnect())
-                loop.close()
-            except:
-                pass
-            pending_clients.pop(phone, None)
-        session.clear()
-        return "کد تایید منقضی شده است. از اول شماره را وارد کنید.", 400
+        cleanup_pending(phone)
+        return "کد تایید منقضی شده است", 400
     elif isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
-        save_user(phone, result, [], True, True, True, True)
+        # ورود موفق
+        save_user(phone, result)
         session['authenticated'] = True
+        session['managed_phone'] = phone   # ← شماره‌ای که الان مدیریت می‌شود
         start_all_bots()
         return redirect(url_for('dashboard'))
     else:
@@ -561,92 +526,20 @@ def verify_password():
     phone = session.get('phone')
     if not phone or not password:
         return redirect(url_for('index'))
-    
+
     result = run_async(check_password_async(phone, password))
-    
     if isinstance(result, str) and result.startswith("error"):
         return f"خطا: {result}", 500
     elif isinstance(result, str) and len(result) > 50:
-        save_user(phone, result, [], True, True, True, True)
+        save_user(phone, result)
         session['authenticated'] = True
+        session['managed_phone'] = phone
         start_all_bots()
         return redirect(url_for('dashboard'))
     else:
         return f"خطای ناشناخته: {result}", 500
 
-@app.route('/dashboard')
-def dashboard():
-    phone = session.get('phone')
-    if not phone or not session.get('authenticated'):
-        return redirect(url_for('index'))
-    session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, is_active = get_user(phone)
-    if not session_string:
-        session.clear()
-        return redirect(url_for('index'))
-    groups = run_async(get_groups_async(session_string))
-    if isinstance(groups, str) and groups.startswith("error"):
-        return f"خطا در دریافت گروه‌ها: {groups}", 500
-    all_users = get_all_users()
-    return render_template('dashboard.html', 
-        groups=groups, selected=selected, meow_enabled=meow_enabled,
-        fish_enabled=fish_enabled, smuggle_enabled=smuggle_enabled,
-        is_active=is_active, phone=phone, all_users=all_users)
-
-@app.route('/save_settings', methods=['POST'])
-def save_settings():
-    phone = session.get('phone')
-    if not phone or not session.get('authenticated'):
-        return redirect(url_for('index'))
-    session_string, _, _, _, _, _ = get_user(phone)
-    if not session_string:
-        return redirect(url_for('index'))
-    meow_enabled = request.form.get('meow_enabled') == 'on'
-    fish_enabled = request.form.get('fish_enabled') == 'on'
-    smuggle_enabled = request.form.get('smuggle_enabled') == 'on'
-    is_active = request.form.get('is_active') == 'on'
-    selected_groups = request.form.getlist('groups')
-    save_user(phone, session_string, selected_groups, meow_enabled, fish_enabled, smuggle_enabled, is_active)
-    start_all_bots()
-    return redirect(url_for('dashboard'))
-
-@app.route('/toggle_user', methods=['POST'])
-def toggle_user():
-    target_phone = request.form.get('phone')
-    action = request.form.get('action')
-    admin_phone = session.get('phone')
-    if not admin_phone or not session.get('authenticated'):
-        return redirect(url_for('index'))
-    session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, is_active = get_user(target_phone)
-    if session_string:
-        new_status = action == 'enable'
-        save_user(target_phone, session_string, selected, meow_enabled, fish_enabled, smuggle_enabled, new_status)
-        start_all_bots()
-    return redirect(url_for('dashboard'))
-
-@app.route('/remove_user', methods=['POST'])
-def remove_user():
-    target_phone = request.form.get('phone')
-    admin_phone = session.get('phone')
-    if not admin_phone or not session.get('authenticated'):
-        return redirect(url_for('index'))
-    if target_phone == admin_phone:
-        return "نمی‌توانید خودتان را حذف کنید!", 400
-    stop_bot(target_phone)
-    delete_user(target_phone)
-    return redirect(url_for('dashboard'))
-
-@app.route('/stop_bot')
-def stop_bot_route():
-    phone = session.get('phone')
-    if phone:
-        stop_bot(phone)
-    return "ربات متوقف شد! <a href='/dashboard'>بازگشت</a>"
-
-@app.route('/logout')
-def logout():
-    phone = session.get('phone')
-    if phone:
-        stop_bot(phone)
+def cleanup_pending(phone):
     if phone in pending_clients:
         try:
             loop = asyncio.new_event_loop()
@@ -656,6 +549,120 @@ def logout():
         except:
             pass
         pending_clients.pop(phone, None)
+
+@app.route('/dashboard')
+def dashboard():
+    if not session.get('authenticated'):
+        return redirect(url_for('index'))
+
+    # شماره‌ای که در حال مدیریت است (پیش‌فرض شماره ورود)
+    managed = session.get('managed_phone')
+    if not managed or not get_user(managed):
+        # در صورت نبود، به اولین شماره‌ای که session دارد برگرد
+        managed = session.get('phone')
+        session['managed_phone'] = managed
+
+    user = get_user(managed)
+    if not user:
+        session.clear()
+        return redirect(url_for('index'))
+
+    # دریافت گروه‌های این شماره
+    groups = run_async(get_groups_async(user["session_string"]))
+    if isinstance(groups, str) and groups.startswith("error"):
+        flash(f"خطا در دریافت گروه‌ها: {groups}", "danger")
+        groups = []
+
+    all_users = get_all_users()  # بدون session string
+
+    return render_template('dashboard.html',
+                           managed_phone=managed,
+                           groups=groups,
+                           selected=user["selected_groups"],
+                           meow_enabled=user["meow_enabled"],
+                           fish_enabled=user["fish_enabled"],
+                           smuggle_enabled=user["smuggle_enabled"],
+                           is_active=user["is_active"],
+                           all_users=all_users)
+
+@app.route('/switch_user/<phone>')
+def switch_user(phone):
+    if not session.get('authenticated'):
+        return redirect(url_for('index'))
+    if get_user(phone):
+        session['managed_phone'] = phone
+    return redirect(url_for('dashboard'))
+
+@app.route('/save_settings', methods=['POST'])
+def save_settings():
+    managed = session.get('managed_phone')
+    if not managed or not session.get('authenticated'):
+        return redirect(url_for('index'))
+
+    user = get_user(managed)
+    if not user:
+        return redirect(url_for('index'))
+
+    meow_enabled = request.form.get('meow_enabled') == 'on'
+    fish_enabled = request.form.get('fish_enabled') == 'on'
+    smuggle_enabled = request.form.get('smuggle_enabled') == 'on'
+    is_active = request.form.get('is_active') == 'on'
+    selected_groups = request.form.getlist('groups')
+
+    save_user(managed, user["session_string"], selected_groups,
+              meow_enabled, fish_enabled, smuggle_enabled, is_active)
+
+    # اگر فعال شد، ربات‌ها را دوباره راه بینداز
+    if is_active:
+        start_all_bots()
+    else:
+        stop_bot(managed)
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/toggle_user', methods=['POST'])
+def toggle_user():
+    if not session.get('authenticated'):
+        return redirect(url_for('index'))
+    target_phone = request.form.get('phone')
+    action = request.form.get('action')
+    u = get_user(target_phone)
+    if not u:
+        return redirect(url_for('dashboard'))
+
+    new_status = action == 'enable'
+    save_user(target_phone, u["session_string"], u["selected_groups"],
+              u["meow_enabled"], u["fish_enabled"], u["smuggle_enabled"], new_status)
+
+    if new_status:
+        start_all_bots()
+    else:
+        stop_bot(target_phone)
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/remove_user', methods=['POST'])
+def remove_user():
+    if not session.get('authenticated'):
+        return redirect(url_for('index'))
+    target_phone = request.form.get('phone')
+    if target_phone == session.get('phone'):
+        flash("نمی‌توانید حساب جاری خود را حذف کنید.", "danger")
+        return redirect(url_for('dashboard'))
+
+    stop_bot(target_phone)
+    delete_user(target_phone)
+    # اگر حساب حذف‌شده همان managed بود، به شماره ورود برگرد
+    if session.get('managed_phone') == target_phone:
+        session['managed_phone'] = session.get('phone')
+    return redirect(url_for('dashboard'))
+
+@app.route('/logout')
+def logout():
+    phone = session.get('phone')
+    if phone:
+        stop_bot(phone)
+    cleanup_pending(phone)
     session.clear()
     return redirect(url_for('index'))
 
