@@ -4,29 +4,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>پنل مدیریت میو</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:Tahoma,sans-serif;background:linear-gradient(135deg,#fdf6e3,#f5e6ca);min-height:100vh;padding:30px 20px;display:flex;justify-content:center;align-items:flex-start}
         .container{background:#fff;border-radius:28px;padding:40px 38px;max-width:900px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.1)}
         .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:10px}
         .header-left{display:flex;align-items:center;gap:12px}
-        .header-left .icon{font-size:36px}
+        .header-left i{font-size:36px;color:#e8850e}
         .header-left h2{color:#3d2c1b;font-size:24px}
         .header-actions{display:flex;gap:10px;flex-wrap:wrap}
         .btn-sm{padding:8px 18px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all .3s;text-decoration:none;display:inline-block}
-        .btn-sm-danger{background:#f5e6e0;color:#b3413a}
-        .btn-sm-danger:hover{background:#e8ccc4}
         .btn-sm-outline{background:transparent;color:#e8850e;border:2px solid #e8850e}
         .btn-sm-outline:hover{background:#e8850e;color:#fff}
         .btn-sm-success{background:#34a853;color:#fff}
         .btn-sm-success:hover{background:#2d9248}
+        .btn-sm-danger{background:#ea4335;color:#fff}
+        .btn-sm-danger:hover{background:#c62828}
         .btn-sm-secondary{background:#f0e8e0;color:#4a3724}
         .btn-sm-secondary:hover{background:#e0d5c8}
-        .btn-sm-primary{background:#e8850e;color:#fff}
-        .btn-sm-primary:hover{background:#d97706}
-        .subtitle{color:#8a7a6a;font-size:15px;margin-bottom:22px;border-bottom:1px solid #f0e8e0;padding-bottom:16px}
+        .flash-msg{padding:10px;border-radius:12px;margin-bottom:16px}
+        .flash-success{background:#d4edda;color:#155724}
+        .flash-danger{background:#f8d7da;color:#721c24}
+        .flash-warning{background:#fff3cd;color:#856404}
         .section{margin-bottom:30px}
-        .section-title{font-size:18px;font-weight:700;color:#3d2c1b;margin-bottom:12px}
+        .section-title{font-size:18px;font-weight:700;color:#3d2c1b;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+        .section-title i{color:#e8850e}
+        .users-table{width:100%;border-collapse:collapse;margin-top:12px}
+        .users-table th,.users-table td{padding:10px 12px;text-align:right;border-bottom:1px solid #f0e8e0}
+        .users-table th{background:#faf8f5;font-weight:700;color:#3d2c1b}
+        .users-table tr:hover{background:#fcfaf8}
+        .badge-active{background:#34a853;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
+        .badge-inactive{background:#ea4335;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
+        .btn-xs{padding:4px 12px;border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;text-decoration:none;display:inline-block;margin:1px}
+        .btn-xs-primary{background:#e8850e;color:#fff}
+        .btn-xs-primary:hover{background:#d97706}
+        .btn-xs-success{background:#34a853;color:#fff}
+        .btn-xs-success:hover{background:#2d9248}
+        .btn-xs-danger{background:#ea4335;color:#fff}
+        .btn-xs-danger:hover{background:#c62828}
         .group-list{max-height:300px;overflow-y:auto;margin-bottom:16px;padding-right:4px}
         .group-list::-webkit-scrollbar{width:6px}
         .group-list::-webkit-scrollbar-track{background:#f5f0ea;border-radius:8px}
@@ -49,20 +65,148 @@
         .settings-item .status.off{background:#ea4335;color:#fff}
         .btn-save{width:100%;padding:14px;background:linear-gradient(135deg,#e8850e,#d97706);color:#fff;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;transition:all .3s;margin-top:6px}
         .btn-save:hover{transform:scale(1.02);box-shadow:0 8px 30px rgba(232,133,14,.35)}
-        .users-table{width:100%;border-collapse:collapse;margin-top:12px}
-        .users-table th,.users-table td{padding:10px 12px;text-align:right;border-bottom:1px solid #f0e8e0}
-        .users-table th{background:#faf8f5;font-weight:700;color:#3d2c1b}
-        .users-table tr:hover{background:#fcfaf8}
-        .badge-active{background:#34a853;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
-        .badge-inactive{background:#ea4335;color:#fff;padding:2px 12px;border-radius:12px;font-size:12px}
-        .btn-xs{padding:4px 12px;border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;text-decoration:none;display:inline-block; margin:1px;}
-        .btn-xs-success{background:#34a853;color:#fff}
-        .btn-xs-success:hover{background:#2d9248}
-        .btn-xs-danger{background:#ea4335;color:#fff}
-        .btn-xs-danger:hover{background:#c62828}
-        .btn-xs-primary{background:#e8850e;color:#fff}
-        .btn-xs-primary:hover{background:#d97706}
-        .add-user-box{background:#faf8f5;border-radius:16px;padding:16px;margin-top:16px;border:2px dashed #e0d5c8}
+        .footer-actions{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:18px;border-top:1px solid #f0e8e0;flex-wrap:wrap;gap:12px}
+        .footer-actions .status{font-size:14px;color:#8a7a6a}
+        .footer-actions .status .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:6px}
+        .dot.green{background:#34a853}
+        .dot.red{background:#ea4335}
+        @media(max-width:600px){.container{padding:24px 18px}.header{flex-direction:column;align-items:flex-start}.header-actions{width:100%}.settings-grid{grid-template-columns:1fr}.group-item{padding:10px 12px}}
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, msg in messages %}
+              <div class="flash-msg flash-{{ category }}"><i class="bi bi-info-circle-fill"></i> {{ msg }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <div class="header">
+            <div class="header-left">
+                <i class="bi bi-robot"></i>
+                <h2>پنل مدیریت میو</h2>
+            </div>
+            <div class="header-actions">
+                {% if managed_phone %}
+                <span style="font-size:14px;color:#8a7a6a;"><i class="bi bi-phone"></i> مدیریت: {{ managed_phone }}</span>
+                {% endif %}
+                <a href="/dashboard" class="btn-sm btn-sm-success"><i class="bi bi-arrow-repeat"></i> تازه‌سازی</a>
+                <a href="/admin_logout" class="btn-sm btn-sm-danger"><i class="bi bi-box-arrow-right"></i> خروج ادمین</a>
+            </div>
+        </div>
+
+        <!-- لیست کاربران -->
+        <div class="section">
+            <div class="section-title"><i class="bi bi-people-fill"></i> مدیریت حساب‌ها</div>
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>شماره</th>
+                        <th>وضعیت</th>
+                        <th><i class="bi bi-emoji-smile"></i> میو</th>
+                        <th><i class="bi bi-heart-fill"></i> پیشی</th>
+                        <th>عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in all_users %}
+                    <tr>
+                        <td>{{ user.phone }}</td>
+                        <td>
+                            {% if user.is_active %}
+                                <span class="badge-active"><i class="bi bi-check-circle-fill"></i> فعال</span>
+                            {% else %}
+                                <span class="badge-inactive"><i class="bi bi-x-circle-fill"></i> غیرفعال</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if user.meow_enabled %}<i class="bi bi-check-lg text-success"></i>{% else %}<i class="bi bi-x-lg text-danger"></i>{% endif %}</td>
+                        <td>{% if user.fish_enabled %}<i class="bi bi-check-lg text-success"></i>{% else %}<i class="bi bi-x-lg text-danger"></i>{% endif %}</td>
+                        <td>
+                            {% if user.phone != managed_phone %}
+                            <a href="/switch_user/{{ user.phone }}" class="btn-xs btn-xs-primary"><i class="bi bi-pencil-square"></i> مدیریت</a>
+                            {% else %}
+                            <span class="btn-xs" style="background:#f0e8e0;color:#3d2c1b;"><i class="bi bi-check-circle"></i> جاری</span>
+                            {% endif %}
+                            <form method="post" action="/toggle_user" style="display:inline;">
+                                <input type="hidden" name="phone" value="{{ user.phone }}">
+                                {% if user.is_active %}
+                                    <button type="submit" name="action" value="disable" class="btn-xs btn-xs-danger"><i class="bi bi-pause-fill"></i> غیرفعال</button>
+                                {% else %}
+                                    <button type="submit" name="action" value="enable" class="btn-xs btn-xs-success"><i class="bi bi-play-fill"></i> فعال</button>
+                                {% endif %}
+                            </form>
+                            <form method="post" action="/remove_user" style="display:inline;">
+                                <input type="hidden" name="phone" value="{{ user.phone }}">
+                                <button type="submit" class="btn-xs btn-xs-danger" onclick="return confirm('حذف شود؟')"><i class="bi bi-trash-fill"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- تنظیمات حساب جاری -->
+        {% if managed_phone %}
+        <div class="section">
+            <div class="section-title"><i class="bi bi-sliders2"></i> تنظیمات {{ managed_phone }}</div>
+            <form method="post" action="/save_settings">
+                <p style="font-weight:600;color:#3d2c1b;margin-bottom:8px;"><i class="bi bi-chat-dots-fill"></i> گروه‌های انتخاب‌شده:</p>
+                <div class="group-list">
+                    {% if groups %}
+                        {% for group in groups %}
+                            <label class="group-item {% if group.id|string in selected %}selected{% endif %}">
+                                <input type="checkbox" name="groups" value="{{ group.id }}" {% if group.id|string in selected %}checked{% endif %}>
+                                <div class="info">
+                                    <div class="title">{{ group.title }}</div>
+                                    <div class="meta"><i class="bi bi-people"></i> {{ group.members }} عضو</div>
+                                </div>
+                                <span class="badge">{{ group.id }}</span>
+                            </label>
+                        {% endfor %}
+                    {% else %}
+                        <p style="color:#a09080;">هیچ گروهی پیدا نشد</p>
+                    {% endif %}
+                </div>
+
+                <p style="font-weight:600;color:#3d2c1b;margin:16px 0 8px;"><i class="bi bi-toggles"></i> قابلیت‌ها:</p>
+                <div class="settings-grid">
+                    <div class="settings-item">
+                        <input type="checkbox" name="meow_enabled" id="meow" {% if meow_enabled %}checked{% endif %}>
+                        <label for="meow"><i class="bi bi-emoji-smile"></i> میو</label>
+                        <span class="status {% if meow_enabled %}on{% else %}off{% endif %}">{% if meow_enabled %}فعال{% else %}غیرفعال{% endif %}</span>
+                    </div>
+                    <div class="settings-item">
+                        <input type="checkbox" name="fish_enabled" id="fish" {% if fish_enabled %}checked{% endif %}>
+                        <label for="fish"><i class="bi bi-heart-fill"></i> پیشی</label>
+                        <span class="status {% if fish_enabled %}on{% else %}off{% endif %}">{% if fish_enabled %}فعال{% else %}غیرفعال{% endif %}</span>
+                    </div>
+                    <div class="settings-item" style="border:2px solid #e8850e;">
+                        <input type="checkbox" name="is_active" id="active" {% if is_active %}checked{% endif %}>
+                        <label for="active" style="color:#e8850e;"><i class="bi bi-power"></i> ربات فعال</label>
+                        <span class="status {% if is_active %}on{% else %}off{% endif %}">{% if is_active %}روشن{% else %}خاموش{% endif %}</span>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-save"><i class="bi bi-cloud-upload-fill"></i> ذخیره تنظیمات</button>
+            </form>
+        </div>
+        {% endif %}
+
+        <div class="footer-actions">
+            <span class="status">
+                <span class="dot {% if is_active %}green{% else %}red{% endif %}"></span>
+                ربات این حساب: {% if is_active %}فعال{% else %}غیرفعال{% endif %}
+            </span>
+            <div>
+                <a href="/admin_logout" class="btn-sm btn-sm-danger"><i class="bi bi-box-arrow-right"></i> خروج کامل</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>        .add-user-box{background:#faf8f5;border-radius:16px;padding:16px;margin-top:16px;border:2px dashed #e0d5c8}
         .add-user-box input{padding:10px 14px;border:2px solid #ede5d8;border-radius:12px;font-size:14px;background:#fff;outline:none;width:200px}
         .add-user-box input:focus{border-color:#e8850e}
         .add-user-box .btn-add{background:#e8850e;color:#fff;border:none;padding:10px 20px;border-radius:12px;font-weight:600;cursor:pointer}
