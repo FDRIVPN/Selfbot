@@ -3,3 +3,4 @@ pyrogram==2.0.106
 tgcrypto
 gunicorn
 python-dotenv
+requests
