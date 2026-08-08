@@ -80,7 +80,7 @@ async def selfbot_worker(phone: str):
                 asyncio.create_task(rescue_loop(c, message.chat.id, message.id))
 
             if u["fish_enabled"] and ("پیشی" in text or "میو" in text):
-                await click_button(message, ["برداشت میو پوینت", "برداشت"])
+                await click_button(message, ["برداشت میو پوینت ها", "برداشت"])
 
         try:
             await client.start()
