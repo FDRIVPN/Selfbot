@@ -1,162 +1,19 @@
-<!DOCTYPE html>
-<html dir="rtl" lang="fa">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ورود به پنل میو</title>
-    <style>
-        /* ===== Reset ===== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Vazir', 'Tahoma', sans-serif;
-            background: linear-gradient(135deg, #fdf6e3, #f5e6ca);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .container {
-            background: #ffffff;
-            border-radius: 24px;
-            padding: 40px 36px;
-            max-width: 420px;
-            width: 100%;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.10), 0 8px 20px rgba(0, 0, 0, 0.06);
-            transition: transform 0.3s ease;
-        }
-
-        .container:hover {
-            transform: translateY(-4px);
-        }
-
-        .logo {
-            text-align: center;
-            font-size: 52px;
-            margin-bottom: 8px;
-            line-height: 1;
-        }
-
-        h2 {
-            text-align: center;
-            color: #3d2c1b;
-            font-weight: 700;
-            font-size: 24px;
-            margin-bottom: 6px;
-        }
-
-        .subtitle {
-            text-align: center;
-            color: #8a7a6a;
-            font-size: 14px;
-            margin-bottom: 28px;
-        }
-
-        .form-group {
-            margin-bottom: 18px;
-        }
-
-        label {
-            display: block;
-            font-size: 14px;
-            font-weight: 600;
-            color: #4a3724;
-            margin-bottom: 6px;
-        }
-
-        input {
-            width: 100%;
-            padding: 14px 16px;
-            border: 2px solid #ede5d8;
-            border-radius: 14px;
-            font-size: 16px;
-            background: #faf8f5;
-            transition: border 0.3s, box-shadow 0.3s;
-            outline: none;
-            font-family: inherit;
-        }
-
-        input:focus {
-            border-color: #e8850e;
-            box-shadow: 0 0 0 4px rgba(232, 133, 14, 0.15);
-            background: #ffffff;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #e8850e, #d97706);
-            color: #ffffff;
-            border: none;
-            border-radius: 14px;
-            font-size: 18px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: inherit;
-            letter-spacing: 0.3px;
-        }
-
-        .btn:hover {
-            transform: scale(1.02);
-            box-shadow: 0 8px 25px rgba(232, 133, 14, 0.35);
-        }
-
-        .btn:active {
-            transform: scale(0.97);
-        }
-
-        .footer-text {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 13px;
-            color: #b0a090;
-        }
-
-        .footer-text a {
-            color: #e8850e;
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .footer-text a:hover {
-            text-decoration: underline;
-        }
-
-        /* responsive */
-        @media (max-width: 480px) {
-            .container {
-                padding: 28px 20px;
-            }
-            h2 {
-                font-size: 20px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🐱</div>
-        <h2>🔐 ورود به پنل میو</h2>
-        <p class="subtitle">با شماره تلگرام خود وارد شوید</p>
-
-        <form method="post" action="/send_code">
-            <div class="form-group">
-                <label>📱 شماره موبایل (با کد کشور)</label>
-                <input type="text" name="phone" placeholder="مثال: 989031774645" required>
-            </div>
-            <button type="submit" class="btn">ارسال کد تایید</button>
-        </form>
-
-        <div class="footer-text">
-            <span>ربات میو • 🐾</span>
-        </div>
+{% extends "base.html" %}
+{% block title %}افزودن اکانت{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white rounded-xl shadow-md p-8 mt-10">
+    <h1 class="text-2xl font-bold text-center mb-6">افزودن اکانت تلگرام</h1>
+    <form method="POST" action="{{ url_for('send_code_route') }}">
+        <label class="block mb-2 font-medium">شماره موبایل (با کد کشور)</label>
+        <input type="text" name="phone" placeholder="98912xxxxxxx" required
+               class="w-full border rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+               dir="ltr">
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg">
+            ارسال کد تایید
+        </button>
+    </form>
+    <div class="mt-6 text-center">
+        <a href="{{ url_for('admin') }}" class="text-blue-600 hover:underline">ورود به پنل مدیریت</a>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}
