@@ -1,6 +1,8 @@
 import os
 import asyncio
 import threading
+import time
+import requests
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 
@@ -12,7 +14,7 @@ from workers import start_worker, stop_worker, start_all_active
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# ---------- Event Loop اختصاصی ----------
+# ---------------------- Event Loop ----------------------
 LOOP = asyncio.new_event_loop()
 
 def _run_loop():
@@ -31,9 +33,29 @@ def run_async(coro, timeout=90):
     except Exception as e:
         return f"error: {str(e)}"
 
+# ---------------------- Keep Alive ----------------------
+def keep_alive():
+    while True:
+        try:
+            # آدرس خودت را اینجا بگذار
+            url = os.getenv("KEEP_ALIVE_URL", "https://selfbot-production-1d01.up.railway.app/test")
+            requests.get(url, timeout=10)
+            print("💓 Keep-alive زده شد")
+        except Exception as e:
+            print(f"Keep-alive خطا: {e}")
+        time.sleep(50)
+
+threading.Thread(target=keep_alive, daemon=True).start()
+
+# ---------------------- Init ----------------------
 init_db()
 
-# ---------- روت‌های لاگین اکانت ----------
+# ---------------------- روت تست ----------------------
+@app.route("/test")
+def test():
+    return "OK - Selfbot is alive"
+
+# ---------------------- روت‌های لاگین اکانت ----------------------
 @app.route("/")
 def index():
     return render_template("login.html")
@@ -62,10 +84,11 @@ def verify_code():
         return redirect(url_for("index"))
 
     result = run_async(sign_in(phone, code))
+
     if result == "need_password":
         return render_template("password.html", phone=phone)
+
     elif isinstance(result, str) and len(result) > 40:
-        # موفق
         groups = run_async(get_groups(result))
         if not isinstance(groups, list):
             groups = []
@@ -85,6 +108,7 @@ def verify_password():
         return redirect(url_for("index"))
 
     result = run_async(check_password(phone, password))
+
     if isinstance(result, str) and len(result) > 40:
         groups = run_async(get_groups(result))
         if not isinstance(groups, list):
@@ -97,7 +121,7 @@ def verify_password():
         flash(str(result), "danger")
         return redirect(url_for("index"))
 
-# ---------- پنل ادمین ----------
+# ---------------------- پنل ادمین ----------------------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
@@ -106,8 +130,10 @@ def admin():
             start_all_active(LOOP)
             return redirect(url_for("dashboard"))
         flash("رمز اشتباه است", "danger")
+
     if session.get("is_admin"):
         return redirect(url_for("dashboard"))
+
     return render_template("admin_login.html")
 
 @app.route("/dashboard")
@@ -123,7 +149,10 @@ def dashboard():
         session["managed_phone"] = managed
 
     user = get_user(managed) if managed else None
-    groups = user.get("cached_groups") or [] if user else []
+    groups = []
+
+    if user:
+        groups = user.get("cached_groups") or []
 
     return render_template(
         "dashboard.html",
@@ -151,7 +180,17 @@ def save_settings():
     if not user:
         return redirect(url_for("dashboard"))
 
+    # گروه‌های انتخاب شده از چک‌باکس
     selected = request.form.getlist("groups")
+
+    # اگر آیدی دستی وارد شده باشد
+    manual_id = request.form.get("manual_group_id", "").strip()
+    if manual_id:
+        # فقط عدد و علامت منفی را نگه می‌داریم
+        clean_id = "".join(c for c in manual_id if c.isdigit() or c == "-")
+        if clean_id and clean_id not in selected:
+            selected.append(clean_id)
+
     meow = request.form.get("meow_enabled") == "on"
     fish = request.form.get("fish_enabled") == "on"
     active = request.form.get("is_active") == "on"
@@ -171,18 +210,49 @@ def save_settings():
     else:
         stop_worker(phone)
 
-    flash("تنظیمات ذخیره شد", "success")
+    flash("تنظیمات با موفقیت ذخیره شد", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/refresh_groups", methods=["POST"])
+def refresh_groups():
+    if not session.get("is_admin"):
+        return redirect(url_for("admin"))
+
+    phone = session.get("managed_phone")
+    user = get_user(phone)
+    if not user:
+        return redirect(url_for("dashboard"))
+
+    groups = run_async(get_groups(user["session_string"]), timeout=60)
+
+    if isinstance(groups, list):
+        save_user(
+            phone,
+            user["session_string"],
+            selected_groups=user["selected_groups"],
+            meow_enabled=user["meow_enabled"],
+            fish_enabled=user["fish_enabled"],
+            is_active=user["is_active"],
+            cached_groups=groups
+        )
+        flash(f"{len(groups)} گروه دریافت شد", "success")
+    else:
+        flash(f"خطا در دریافت گروه‌ها: {groups}", "danger")
+
     return redirect(url_for("dashboard"))
 
 @app.route("/remove", methods=["POST"])
 def remove_user():
     if not session.get("is_admin"):
         return redirect(url_for("admin"))
+
     phone = request.form.get("phone")
     stop_worker(phone)
     delete_user(phone)
+
     if session.get("managed_phone") == phone:
         session["managed_phone"] = None
+
     flash("اکانت حذف شد", "success")
     return redirect(url_for("dashboard"))
 
@@ -191,6 +261,26 @@ def logout():
     session.clear()
     return redirect(url_for("admin"))
 
+# ---------------------- Error Handler ----------------------
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    print("=" * 50)
+    print("ERROR:", str(e))
+    traceback.print_exc()
+    print("=" * 50)
+    return f"""
+    <div style="direction:rtl;text-align:center;margin-top:40px;font-family:tahoma;">
+        <h2 style="color:red;">خطایی رخ داد</h2>
+        <pre style="direction:ltr;text-align:left;background:#f5f5f5;padding:20px;
+                    border-radius:8px;max-width:900px;margin:20px auto;overflow:auto;">
+{traceback.format_exc()}
+        </pre>
+    </div>
+    """, 500
+
+# ---------------------- Start ----------------------
 if __name__ == "__main__":
     start_all_active(LOOP)
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
