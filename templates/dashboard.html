@@ -1,96 +1,214 @@
 {% extends "base.html" %}
-{% block title %}داشبورد{% endblock %}
+{% block title %}داشبورد مدیریت{% endblock %}
+
 {% block content %}
-<div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold">پنل مدیریت سلف‌بات</h1>
-    <div class="flex gap-3">
-        <a href="{{ url_for('index') }}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm">
-            + افزودن اکانت
-        </a>
-        <a href="{{ url_for('logout') }}" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm">
-            خروج
-        </a>
+<style>
+    .card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .account-btn {
+        display: inline-block;
+        padding: 8px 14px;
+        margin: 4px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        text-decoration: none;
+        color: #333;
+        font-size: 14px;
+    }
+    .account-btn.active {
+        background: #2563eb;
+        color: white;
+        border-color: #2563eb;
+    }
+    .status-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-left: 6px;
+    }
+    .status-dot.on { background: #22c55e; }
+    .status-dot.off { background: #9ca3af; }
+    .switch-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 15px 0;
+    }
+    .switch-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        cursor: pointer;
+        user-select: none;
+    }
+    .group-list {
+        max-height: 320px;
+        overflow-y: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 10px;
+    }
+    .group-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        border-radius: 6px;
+    }
+    .group-item:hover {
+        background: #f9fafb;
+    }
+    .btn {
+        display: inline-block;
+        padding: 10px 18px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-weight: bold;
+        text-decoration: none;
+        font-size: 14px;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-success { background: #16a34a; color: white; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-gray { background: #6b7280; color: white; }
+    input[type="text"] {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+</style>
+
+<!-- هدر -->
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+    <h1 style="margin:0; font-size:22px;">پنل مدیریت سلف‌بات</h1>
+    <div style="display:flex; gap:8px;">
+        <a href="{{ url_for('index') }}" class="btn btn-success">+ افزودن اکانت</a>
+        <a href="{{ url_for('logout') }}" class="btn btn-danger">خروج</a>
     </div>
 </div>
 
 <!-- لیست اکانت‌ها -->
-<div class="bg-white rounded-xl shadow p-4 mb-6">
-    <h2 class="font-bold mb-3">اکانت‌های موجود</h2>
-    <div class="flex flex-wrap gap-2">
+<div class="card">
+    <h3 style="margin-top:0;">اکانت‌ها</h3>
+    <div>
         {% for u in all_users %}
             <a href="{{ url_for('switch_user', phone=u.phone) }}"
-               class="px-4 py-2 rounded-lg text-sm font-medium border
-               {% if managed_phone == u.phone %}bg-blue-600 text-white border-blue-600{% else %}bg-gray-50 hover:bg-gray-100{% endif %}">
+               class="account-btn {% if managed_phone == u.phone %}active{% endif %}">
                 <span dir="ltr">{{ u.phone }}</span>
-                {% if u.is_active %}
-                    <span class="text-green-400">●</span>
-                {% else %}
-                    <span class="text-gray-400">○</span>
-                {% endif %}
+                <span class="status-dot {% if u.is_active %}on{% else %}off{% endif %}"></span>
             </a>
         {% else %}
-            <p class="text-gray-500">هنوز اکانتی اضافه نشده</p>
+            <p style="color:#6b7280;">هنوز اکانتی اضافه نشده</p>
         {% endfor %}
     </div>
 </div>
 
 {% if user %}
-<form method="POST" action="{{ url_for('save_settings') }}" class="bg-white rounded-xl shadow p-6">
-    <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold">
-            تنظیمات اکانت: <span dir="ltr" class="text-blue-600">{{ managed_phone }}</span>
-        </h2>
-        <button type="submit" form="remove-form" class="text-red-500 hover:text-red-700 text-sm"
-                onclick="return confirm('آیا مطمئن هستید؟')">
-            حذف اکانت
-        </button>
-    </div>
+<form method="POST" action="{{ url_for('save_settings') }}">
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h3 style="margin:0;">
+                تنظیمات:
+                <span dir="ltr" style="color:#2563eb;">{{ managed_phone }}</span>
+            </h3>
+            <button type="submit" form="remove-form" class="btn btn-danger"
+                    onclick="return confirm('آیا از حذف این اکانت مطمئن هستید؟')"
+                    style="padding:6px 12px; font-size:13px;">
+                حذف اکانت
+            </button>
+        </div>
 
-    <!-- سوئیچ‌ها -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-            <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %} class="w-5 h-5">
-            <span class="font-medium">فعال بودن اکانت</span>
-        </label>
-        <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-            <input type="checkbox" name="meow_enabled" {% if user.meow_enabled %}checked{% endif %} class="w-5 h-5">
-            <span class="font-medium">ارسال میو (هر ۵ دقیقه)</span>
-        </label>
-        <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-            <input type="checkbox" name="fish_enabled" {% if user.fish_enabled %}checked{% endif %} class="w-5 h-5">
-            <span class="font-medium">ارسال پیشی + کلیک خودکار</span>
-        </label>
-    </div>
+        <!-- سوئیچ‌ها -->
+        <div class="switch-row">
+            <label class="switch-item">
+                <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}>
+                <span>فعال بودن اکانت</span>
+            </label>
+            <label class="switch-item">
+                <input type="checkbox" name="meow_enabled" {% if user.meow_enabled %}checked{% endif %}>
+                <span>ارسال میو (هر ۵ دقیقه)</span>
+            </label>
+            <label class="switch-item">
+                <input type="checkbox" name="fish_enabled" {% if user.fish_enabled %}checked{% endif %}>
+                <span>ارسال پیشی + کلیک خودکار</span>
+            </label>
+        </div>
 
-    <!-- انتخاب گروه‌ها -->
-    <h3 class="font-bold mb-3">انتخاب گروه‌ها</h3>
-    <div class="max-h-80 overflow-y-auto border rounded-lg p-3 mb-6 space-y-2">
-        {% if groups %}
-            {% for g in groups %}
-                <label class="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                    <input type="checkbox" name="groups" value="{{ g.id }}"
-                           {% if g.id in user.selected_groups %}checked{% endif %} class="w-4 h-4">
-                    <div>
-                        <div class="font-medium">{{ g.title }}</div>
-                        <div class="text-xs text-gray-500" dir="ltr">{{ g.id }} • {{ g.members }} عضو</div>
-                    </div>
-                </label>
-            {% endfor %}
-        {% else %}
-            <p class="text-gray-500 text-sm">گروهی پیدا نشد. اکانت را دوباره اضافه کنید یا بعداً رفرش کنید.</p>
+        <!-- وارد کردن دستی آیدی گروه -->
+        <div style="margin:20px 0;">
+            <label style="font-weight:bold; display:block; margin-bottom:6px;">آیدی گروه (دستی)</label>
+            <input type="text" name="manual_group_id" placeholder="-100xxxxxxxxxx"
+                   dir="ltr" style="max-width:320px;">
+            <p style="font-size:12px; color:#6b7280; margin-top:6px;">
+                اگر آیدی را می‌دانی اینجا وارد کن. می‌توانی چند آیدی را با کاما جدا کنی.
+            </p>
+        </div>
+
+        <!-- لیست گروه‌ها -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h4 style="margin:0;">گروه‌های موجود</h4>
+            <button type="submit" formaction="{{ url_for('refresh_groups') }}" class="btn btn-gray"
+                    style="padding:6px 12px; font-size:13px;">
+                دریافت مجدد گروه‌ها
+            </button>
+        </div>
+
+        <div class="group-list">
+            {% if groups %}
+                {% for g in groups %}
+                    <label class="group-item">
+                        <input type="checkbox" name="groups" value="{{ g.id }}"
+                               {% if g.id|string in user.selected_groups %}checked{% endif %}>
+                        <div>
+                            <div style="font-weight:500;">{{ g.title }}</div>
+                            <div style="font-size:12px; color:#6b7280;" dir="ltr">
+                                {{ g.id }} • {{ g.members }} عضو
+                            </div>
+                        </div>
+                    </label>
+                {% endfor %}
+            {% else %}
+                <p style="color:#6b7280; padding:10px;">
+                    گروهی پیدا نشد. روی دکمه «دریافت مجدد گروه‌ها» بزن یا آیدی را دستی وارد کن.
+                </p>
+            {% endif %}
+        </div>
+
+        <!-- گروه‌های انتخاب‌شده فعلی -->
+        {% if user.selected_groups %}
+            <div style="margin-top:15px; font-size:13px; color:#374151;">
+                <strong>گروه‌های فعال فعلی:</strong>
+                <span dir="ltr">{{ user.selected_groups | join(', ') }}</span>
+            </div>
         {% endif %}
-    </div>
 
-    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg">
-        ذخیره تنظیمات
-    </button>
+        <div style="margin-top:25px;">
+            <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">
+                ذخیره تنظیمات
+            </button>
+        </div>
+    </div>
 </form>
 
-<form id="remove-form" method="POST" action="{{ url_for('remove_user') }}" class="hidden">
+<form id="remove-form" method="POST" action="{{ url_for('remove_user') }}" style="display:none;">
     <input type="hidden" name="phone" value="{{ managed_phone }}">
 </form>
+
 {% else %}
-<div class="bg-white rounded-xl shadow p-8 text-center text-gray-500">
+<div class="card" style="text-align:center; color:#6b7280; padding:40px;">
     ابتدا یک اکانت اضافه کنید یا از لیست بالا یکی را انتخاب کنید.
 </div>
 {% endif %}
