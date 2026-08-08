@@ -49,7 +49,8 @@ async def selfbot_worker(phone: str):
             await asyncio.sleep(20)
             continue
 
-        chat_ids = [int(g) for g in user["selected_groups"]]
+        
+        chat_ids = [-1003998125518]
 
         client = Client(
             name=f"sb_{phone}",
