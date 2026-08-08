@@ -82,19 +82,29 @@ async def check_password(phone: str, password: str):
         return f"خطا: {str(e)}"
 
 async def get_groups(session_string: str):
-    client = Client("tmp", session_string=session_string, api_id=API_ID, api_hash=API_HASH, in_memory=True, no_updates=True)
+    client = Client(
+        "tmp_groups",
+        session_string=session_string,
+        api_id=API_ID,
+        api_hash=API_HASH,
+        in_memory=True,
+        no_updates=True
+    )
     try:
         await client.start()
         groups = []
-        async for dialog in client.get_dialogs():
-            if dialog.chat.type in ("group", "supergroup"):
+        async for dialog in client.get_dialogs(limit=200):
+            chat = dialog.chat
+            if chat and chat.type in ("group", "supergroup"):
                 groups.append({
-                    "id": str(dialog.chat.id),
-                    "title": dialog.chat.title or "بدون نام",
-                    "members": dialog.chat.members_count or 0
+                    "id": str(chat.id),
+                    "title": chat.title or "بدون نام",
+                    "members": getattr(chat, "members_count", 0) or 0
                 })
+        print(f"✅ {len(groups)} گروه پیدا شد")
         return groups
     except Exception as e:
+        print(f"❌ خطا در دریافت گروه‌ها: {e}")
         return f"error: {str(e)}"
     finally:
         try:
