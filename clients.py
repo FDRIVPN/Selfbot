@@ -1,11 +1,13 @@
 import asyncio
 from pyrogram import Client
+from pyrogram.enums import ChatType
 from pyrogram.errors import (
     PhoneNumberInvalid, PhoneCodeInvalid, PhoneCodeExpired, SessionPasswordNeeded
 )
 from config import API_ID, API_HASH
 
 pending = {}  # phone -> {client, phone_code_hash}
+
 
 async def send_code(phone: str):
     if phone in pending:
@@ -30,6 +32,7 @@ async def send_code(phone: str):
     except Exception as e:
         await client.disconnect()
         return f"خطا: {str(e)}"
+
 
 async def sign_in(phone: str, code: str):
     if phone not in pending:
@@ -63,6 +66,7 @@ async def sign_in(phone: str, code: str):
         pending.pop(phone, None)
         return f"خطا: {str(e)}"
 
+
 async def check_password(phone: str, password: str):
     if phone not in pending:
         return "نشست منقضی شده"
@@ -81,6 +85,7 @@ async def check_password(phone: str, password: str):
         pending.pop(phone, None)
         return f"خطا: {str(e)}"
 
+
 async def get_groups(session_string: str):
     client = Client(
         "tmp_groups",
@@ -93,9 +98,9 @@ async def get_groups(session_string: str):
     try:
         await client.start()
         groups = []
-        async for dialog in client.get_dialogs(limit=200):
+        async for dialog in client.get_dialogs(limit=500):
             chat = dialog.chat
-            if chat and chat.type in ("group", "supergroup"):
+            if chat and chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
                 groups.append({
                     "id": str(chat.id),
                     "title": chat.title or "بدون نام",
