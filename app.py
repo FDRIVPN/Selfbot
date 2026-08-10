@@ -37,7 +37,6 @@ def run_async(coro, timeout=90):
 def keep_alive():
     while True:
         try:
-            # آدرس خودت را اینجا بگذار
             url = os.getenv("KEEP_ALIVE_URL", "https://selfbot-production-1d01.up.railway.app/test")
             requests.get(url, timeout=10)
             print("💓 Keep-alive زده شد")
@@ -180,20 +179,31 @@ def save_settings():
     if not user:
         return redirect(url_for("dashboard"))
 
-    # گروه‌های انتخاب شده از چک‌باکس
     selected = request.form.getlist("groups")
 
-    # اگر آیدی دستی وارد شده باشد
     manual_id = request.form.get("manual_group_id", "").strip()
     if manual_id:
-        # فقط عدد و علامت منفی را نگه می‌داریم
-        clean_id = "".join(c for c in manual_id if c.isdigit() or c == "-")
-        if clean_id and clean_id not in selected:
-            selected.append(clean_id)
+        for part in manual_id.replace(" ", "").split(","):
+            clean_id = "".join(c for c in part if c.isdigit() or c == "-")
+            if clean_id and clean_id not in selected:
+                selected.append(clean_id)
 
     meow = request.form.get("meow_enabled") == "on"
     fish = request.form.get("fish_enabled") == "on"
+    rescue = request.form.get("rescue_enabled") == "on"
     active = request.form.get("is_active") == "on"
+
+    harvest_button = request.form.get("harvest_button", "").strip() or "برداشت میو پوینت ها 🧲"
+    rescue_button = request.form.get("rescue_button", "").strip() or "نجات پیشی خیابونی 🐱 🐈"
+
+    try:
+        meow_interval = int(request.form.get("meow_interval") or 300)
+    except:
+        meow_interval = 300
+    try:
+        fish_interval = int(request.form.get("fish_interval") or 600)
+    except:
+        fish_interval = 600
 
     save_user(
         phone,
@@ -201,8 +211,13 @@ def save_settings():
         selected_groups=selected,
         meow_enabled=meow,
         fish_enabled=fish,
+        rescue_enabled=rescue,
         is_active=active,
-        cached_groups=user.get("cached_groups")
+        cached_groups=user.get("cached_groups"),
+        harvest_button=harvest_button,
+        rescue_button=rescue_button,
+        meow_interval=meow_interval,
+        fish_interval=fish_interval,
     )
 
     if active:
@@ -232,8 +247,13 @@ def refresh_groups():
             selected_groups=user["selected_groups"],
             meow_enabled=user["meow_enabled"],
             fish_enabled=user["fish_enabled"],
+            rescue_enabled=user.get("rescue_enabled", True),
             is_active=user["is_active"],
-            cached_groups=groups
+            cached_groups=groups,
+            harvest_button=user.get("harvest_button"),
+            rescue_button=user.get("rescue_button"),
+            meow_interval=user.get("meow_interval", 300),
+            fish_interval=user.get("fish_interval", 600),
         )
         flash(f"{len(groups)} گروه دریافت شد", "success")
     else:
