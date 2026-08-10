@@ -81,7 +81,7 @@
     .btn-success { background: #16a34a; color: white; }
     .btn-danger { background: #dc2626; color: white; }
     .btn-gray { background: #6b7280; color: white; }
-    input[type="text"] {
+    input[type="text"], input[type="number"] {
         width: 100%;
         padding: 10px 12px;
         border: 1px solid #d1d5db;
@@ -89,9 +89,21 @@
         font-size: 14px;
         box-sizing: border-box;
     }
+    .field {
+        margin: 14px 0;
+    }
+    .field label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 6px;
+    }
+    .hint {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 4px;
+    }
 </style>
 
-<!-- هدر -->
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
     <h1 style="margin:0; font-size:22px;">پنل مدیریت سلف‌بات</h1>
     <div style="display:flex; gap:8px;">
@@ -100,7 +112,6 @@
     </div>
 </div>
 
-<!-- لیست اکانت‌ها -->
 <div class="card">
     <h3 style="margin-top:0;">اکانت‌ها</h3>
     <div>
@@ -131,7 +142,6 @@
             </button>
         </div>
 
-        <!-- سوئیچ‌ها -->
         <div class="switch-row">
             <label class="switch-item">
                 <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}>
@@ -139,77 +149,4 @@
             </label>
             <label class="switch-item">
                 <input type="checkbox" name="meow_enabled" {% if user.meow_enabled %}checked{% endif %}>
-                <span>ارسال میو (هر ۵ دقیقه)</span>
-            </label>
-            <label class="switch-item">
-                <input type="checkbox" name="fish_enabled" {% if user.fish_enabled %}checked{% endif %}>
-                <span>ارسال پیشی + کلیک خودکار</span>
-            </label>
-        </div>
-
-        <!-- وارد کردن دستی آیدی گروه -->
-        <div style="margin:20px 0;">
-            <label style="font-weight:bold; display:block; margin-bottom:6px;">آیدی گروه (دستی)</label>
-            <input type="text" name="manual_group_id" placeholder="-100xxxxxxxxxx"
-                   dir="ltr" style="max-width:320px;">
-            <p style="font-size:12px; color:#6b7280; margin-top:6px;">
-                اگر آیدی را می‌دانی اینجا وارد کن. می‌توانی چند آیدی را با کاما جدا کنی.
-            </p>
-        </div>
-
-        <!-- لیست گروه‌ها -->
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <h4 style="margin:0;">گروه‌های موجود</h4>
-            <button type="submit" formaction="{{ url_for('refresh_groups') }}" class="btn btn-gray"
-                    style="padding:6px 12px; font-size:13px;">
-                دریافت مجدد گروه‌ها
-            </button>
-        </div>
-
-        <div class="group-list">
-            {% if groups %}
-                {% for g in groups %}
-                    <label class="group-item">
-                        <input type="checkbox" name="groups" value="{{ g.id }}"
-                               {% if g.id|string in user.selected_groups %}checked{% endif %}>
-                        <div>
-                            <div style="font-weight:500;">{{ g.title }}</div>
-                            <div style="font-size:12px; color:#6b7280;" dir="ltr">
-                                {{ g.id }} • {{ g.members }} عضو
-                            </div>
-                        </div>
-                    </label>
-                {% endfor %}
-            {% else %}
-                <p style="color:#6b7280; padding:10px;">
-                    گروهی پیدا نشد. روی دکمه «دریافت مجدد گروه‌ها» بزن یا آیدی را دستی وارد کن.
-                </p>
-            {% endif %}
-        </div>
-
-        <!-- گروه‌های انتخاب‌شده فعلی -->
-        {% if user.selected_groups %}
-            <div style="margin-top:15px; font-size:13px; color:#374151;">
-                <strong>گروه‌های فعال فعلی:</strong>
-                <span dir="ltr">{{ user.selected_groups | join(', ') }}</span>
-            </div>
-        {% endif %}
-
-        <div style="margin-top:25px;">
-            <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">
-                ذخیره تنظیمات
-            </button>
-        </div>
-    </div>
-</form>
-
-<form id="remove-form" method="POST" action="{{ url_for('remove_user') }}" style="display:none;">
-    <input type="hidden" name="phone" value="{{ managed_phone }}">
-</form>
-
-{% else %}
-<div class="card" style="text-align:center; color:#6b7280; padding:40px;">
-    ابتدا یک اکانت اضافه کنید یا از لیست بالا یکی را انتخاب کنید.
-</div>
-{% endif %}
-{% endblock %}
+                <
