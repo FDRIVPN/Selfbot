@@ -149,4 +149,98 @@
             </label>
             <label class="switch-item">
                 <input type="checkbox" name="meow_enabled" {% if user.meow_enabled %}checked{% endif %}>
-                <
+                <span>ارسال میو</span>
+            </label>
+            <label class="switch-item">
+                <input type="checkbox" name="fish_enabled" {% if user.fish_enabled %}checked{% endif %}>
+                <span>ارسال پیشی + کلیک برداشت</span>
+            </label>
+            <label class="switch-item">
+                <input type="checkbox" name="rescue_enabled" {% if user.rescue_enabled %}checked{% endif %}>
+                <span>نجات پیشی خیابونی</span>
+            </label>
+        </div>
+
+        <div class="field">
+            <label>متن دکمه برداشت (دقیق)</label>
+            <input type="text" name="harvest_button" value="{{ user.harvest_button }}">
+            <p class="hint">فقط وقتی دکمه دقیقاً همین متن باشه کلیک می‌شه</p>
+        </div>
+
+        <div class="field">
+            <label>متن دکمه نجات (دقیق)</label>
+            <input type="text" name="rescue_button" value="{{ user.rescue_button }}">
+            <p class="hint">اگر پیدا نشد دکمه اول پیام زده می‌شه</p>
+        </div>
+
+        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+            <div class="field" style="flex:1; min-width:180px;">
+                <label>فاصله ارسال میو (ثانیه)</label>
+                <input type="number" name="meow_interval" min="30" value="{{ user.meow_interval }}">
+            </div>
+            <div class="field" style="flex:1; min-width:180px;">
+                <label>فاصله ارسال پیشی (ثانیه)</label>
+                <input type="number" name="fish_interval" min="30" value="{{ user.fish_interval }}">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>آیدی گروه (دستی)</label>
+            <input type="text" name="manual_group_id" placeholder="-100xxxxxxxxxx" dir="ltr" style="max-width:320px;">
+            <p class="hint">چند آیدی را با کاما جدا کن</p>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h4 style="margin:0;">گروه‌های موجود</h4>
+            <button type="submit" formaction="{{ url_for('refresh_groups') }}" class="btn btn-gray"
+                    style="padding:6px 12px; font-size:13px;">
+                دریافت مجدد گروه‌ها
+            </button>
+        </div>
+
+        <div class="group-list">
+            {% if groups %}
+                {% for g in groups %}
+                    <label class="group-item">
+                        <input type="checkbox" name="groups" value="{{ g.id }}"
+                               {% if g.id|string in user.selected_groups %}checked{% endif %}>
+                        <div>
+                            <div style="font-weight:500;">{{ g.title }}</div>
+                            <div style="font-size:12px; color:#6b7280;" dir="ltr">
+                                {{ g.id }} • {{ g.members }} عضو
+                            </div>
+                        </div>
+                    </label>
+                {% endfor %}
+            {% else %}
+                <p style="color:#6b7280; padding:10px;">
+                    گروهی پیدا نشد. روی دکمه «دریافت مجدد گروه‌ها» بزن یا آیدی را دستی وارد کن.
+                </p>
+            {% endif %}
+        </div>
+
+        {% if user.selected_groups %}
+            <div style="margin-top:15px; font-size:13px; color:#374151;">
+                <strong>گروه‌های فعال فعلی:</strong>
+                <span dir="ltr">{{ user.selected_groups | join(', ') }}</span>
+            </div>
+        {% endif %}
+
+        <div style="margin-top:25px;">
+            <button type="submit" class="btn btn-primary" style="width:100%; padding:12px;">
+                ذخیره تنظیمات
+            </button>
+        </div>
+    </div>
+</form>
+
+<form id="remove-form" method="POST" action="{{ url_for('remove_user') }}" style="display:none;">
+    <input type="hidden" name="phone" value="{{ managed_phone }}">
+</form>
+
+{% else %}
+<div class="card" style="text-align:center; color:#6b7280; padding:40px;">
+    ابتدا یک اکانت اضافه کنید یا از لیست بالا یکی را انتخاب کنید.
+</div>
+{% endif %}
+{% endblock %}
