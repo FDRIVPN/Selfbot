@@ -191,6 +191,7 @@ def save_settings():
     meow = request.form.get("meow_enabled") == "on"
     fish = request.form.get("fish_enabled") == "on"
     rescue = request.form.get("rescue_enabled") == "on"
+    catch = request.form.get("catch_enabled") == "on"
     active = request.form.get("is_active") == "on"
 
     harvest_button = request.form.get("harvest_button", "").strip() or "برداشت میو پوینت ها 🧲"
@@ -204,6 +205,17 @@ def save_settings():
         fish_interval = int(request.form.get("fish_interval") or 600)
     except:
         fish_interval = 600
+    try:
+        catch_interval = int(request.form.get("catch_interval") or 120)
+    except:
+        catch_interval = 120
+
+    levels = ["افسانه", "حماسی", "کمیاب", "غیرمعمول", "معمولی", "اسطوره"]
+    fish_rules = {}
+    for lv in levels:
+        val = request.form.get(f"rule_{lv}", "sell")
+        if val in ("sell", "cat", "fridge"):
+            fish_rules[lv] = val
 
     save_user(
         phone,
@@ -212,12 +224,15 @@ def save_settings():
         meow_enabled=meow,
         fish_enabled=fish,
         rescue_enabled=rescue,
+        catch_enabled=catch,
         is_active=active,
         cached_groups=user.get("cached_groups"),
         harvest_button=harvest_button,
         rescue_button=rescue_button,
         meow_interval=meow_interval,
         fish_interval=fish_interval,
+        catch_interval=catch_interval,
+        fish_rules=fish_rules,
     )
 
     if active:
@@ -248,12 +263,15 @@ def refresh_groups():
             meow_enabled=user["meow_enabled"],
             fish_enabled=user["fish_enabled"],
             rescue_enabled=user.get("rescue_enabled", True),
+            catch_enabled=user.get("catch_enabled", True),
             is_active=user["is_active"],
             cached_groups=groups,
             harvest_button=user.get("harvest_button"),
             rescue_button=user.get("rescue_button"),
             meow_interval=user.get("meow_interval", 300),
             fish_interval=user.get("fish_interval", 600),
+            catch_interval=user.get("catch_interval", 120),
+            fish_rules=user.get("fish_rules"),
         )
         flash(f"{len(groups)} گروه دریافت شد", "success")
     else:
