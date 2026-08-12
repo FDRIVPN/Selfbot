@@ -60,14 +60,12 @@ def send_code_route():
     if not phone:
         flash("شماره را وارد کنید", "danger")
         return redirect(url_for("index"))
-
     result = run_async(send_code(phone))
     if result is True:
         session["phone"] = phone
         return render_template("code.html", phone=phone)
-    else:
-        flash(str(result), "danger")
-        return redirect(url_for("index"))
+    flash(str(result), "danger")
+    return redirect(url_for("index"))
 
 @app.route("/verify_code", methods=["POST"])
 def verify_code():
@@ -76,33 +74,9 @@ def verify_code():
     if not phone:
         flash("نشست منقضی شده", "danger")
         return redirect(url_for("index"))
-
     result = run_async(sign_in(phone, code))
-
     if result == "need_password":
         return render_template("password.html", phone=phone)
-
-    elif isinstance(result, str) and len(result) > 40:
-        groups = run_async(get_groups(result))
-        if not isinstance(groups, list):
-            groups = []
-        save_user(phone, result, cached_groups=groups, is_active=False)
-        session.pop("phone", None)
-        flash("اکانت با موفقیت اضافه شد", "success")
-        return redirect(url_for("admin"))
-    else:
-        flash(str(result), "danger")
-        return redirect(url_for("index"))
-
-@app.route("/verify_password", methods=["POST"])
-def verify_password():
-    phone = session.get("phone")
-    password = request.form.get("password", "").strip()
-    if not phone:
-        return redirect(url_for("index"))
-
-    result = run_async(check_password(phone, password))
-
     if isinstance(result, str) and len(result) > 40:
         groups = run_async(get_groups(result))
         if not isinstance(groups, list):
@@ -111,9 +85,26 @@ def verify_password():
         session.pop("phone", None)
         flash("اکانت با موفقیت اضافه شد", "success")
         return redirect(url_for("admin"))
-    else:
-        flash(str(result), "danger")
+    flash(str(result), "danger")
+    return redirect(url_for("index"))
+
+@app.route("/verify_password", methods=["POST"])
+def verify_password():
+    phone = session.get("phone")
+    password = request.form.get("password", "").strip()
+    if not phone:
         return redirect(url_for("index"))
+    result = run_async(check_password(phone, password))
+    if isinstance(result, str) and len(result) > 40:
+        groups = run_async(get_groups(result))
+        if not isinstance(groups, list):
+            groups = []
+        save_user(phone, result, cached_groups=groups, is_active=False)
+        session.pop("phone", None)
+        flash("اکانت با موفقیت اضافه شد", "success")
+        return redirect(url_for("admin"))
+    flash(str(result), "danger")
+    return redirect(url_for("index"))
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
@@ -123,30 +114,21 @@ def admin():
             start_all_active(LOOP)
             return redirect(url_for("dashboard"))
         flash("رمز اشتباه است", "danger")
-
     if session.get("is_admin"):
         return redirect(url_for("dashboard"))
-
     return render_template("admin_login.html")
 
 @app.route("/dashboard")
 def dashboard():
     if not session.get("is_admin"):
         return redirect(url_for("admin"))
-
     managed = session.get("managed_phone")
     all_users = get_all_users()
-
     if not managed and all_users:
         managed = all_users[0]["phone"]
         session["managed_phone"] = managed
-
     user = get_user(managed) if managed else None
-    groups = []
-
-    if user:
-        groups = user.get("cached_groups") or []
-
+    groups = user.get("cached_groups") or [] if user else []
     return render_template(
         "dashboard.html",
         managed_phone=managed,
@@ -167,14 +149,12 @@ def switch_user(phone):
 def save_settings():
     if not session.get("is_admin"):
         return redirect(url_for("admin"))
-
     phone = session.get("managed_phone")
     user = get_user(phone)
     if not user:
         return redirect(url_for("dashboard"))
 
     selected = request.form.getlist("groups")
-
     manual_id = request.form.get("manual_group_id", "").strip()
     if manual_id:
         for part in manual_id.replace(" ", "").split(","):
@@ -211,8 +191,8 @@ def save_settings():
         val = request.form.get(f"rule_{lv}", "sell")
         if val in ("sell", "cat", "fridge"):
             fish_rules[lv] = val
-        cval = request.form.get(f"cooked_{lv}", "sell")
-        if cval in ("sell", "cat"):
+        cval = request.form.get(f"cooked_{lv}", "keep")
+        if cval in ("sell", "cat", "keep"):
             cooked_rules[lv] = cval
 
     save_user(
@@ -246,14 +226,11 @@ def save_settings():
 def refresh_groups():
     if not session.get("is_admin"):
         return redirect(url_for("admin"))
-
     phone = session.get("managed_phone")
     user = get_user(phone)
     if not user:
         return redirect(url_for("dashboard"))
-
     groups = run_async(get_groups(user["session_string"]), timeout=60)
-
     if isinstance(groups, list):
         save_user(
             phone,
@@ -276,21 +253,17 @@ def refresh_groups():
         flash(f"{len(groups)} گروه دریافت شد", "success")
     else:
         flash(f"خطا در دریافت گروه‌ها: {groups}", "danger")
-
     return redirect(url_for("dashboard"))
 
 @app.route("/remove", methods=["POST"])
 def remove_user():
     if not session.get("is_admin"):
         return redirect(url_for("admin"))
-
     phone = request.form.get("phone")
     stop_worker(phone)
     delete_user(phone)
-
     if session.get("managed_phone") == phone:
         session["managed_phone"] = None
-
     flash("اکانت حذف شد", "success")
     return redirect(url_for("dashboard"))
 
