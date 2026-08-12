@@ -11,11 +11,15 @@ active_tasks = {}
 BTN_SELL = "فروش ماهی"
 BTN_CAT = "بده پیشی بخوره"
 BTN_FRIDGE = "بندازش تو یخچال"
-BTN_COOK = "بپوخش"
-BTN_UPGRADE_FRIDGE = "ارتقا سطح یخچال"
 
-# cooldown per phone
 cooldowns = {}
+
+
+def safe_text(message: Message) -> str:
+    try:
+        return message.text or message.caption or ""
+    except Exception:
+        return ""
 
 
 def parse_wait_seconds(text: str):
@@ -43,13 +47,16 @@ def get_cd_left(phone: str, key: str) -> float:
 
 
 def btn_texts(message: Message) -> list:
-    if not message.reply_markup or not message.reply_markup.inline_keyboard:
+    try:
+        if not message.reply_markup or not message.reply_markup.inline_keyboard:
+            return []
+        out = []
+        for row in message.reply_markup.inline_keyboard:
+            for b in row:
+                out.append((b.text or "").strip())
+        return out
+    except Exception:
         return []
-    out = []
-    for row in message.reply_markup.inline_keyboard:
-        for b in row:
-            out.append((b.text or "").strip())
-    return out
 
 
 def has_btn(message: Message, *names) -> bool:
@@ -66,17 +73,20 @@ async def click_exact(message: Message, exact_text: str) -> bool:
     if not exact_text or not message.reply_markup or not message.reply_markup.inline_keyboard:
         return False
     exact_text = exact_text.strip()
-    for row in message.reply_markup.inline_keyboard:
-        for btn in row:
-            t = (btn.text or "").strip()
-            if t == exact_text or (exact_text and exact_text in t):
-                try:
-                    await message.click(t if t else 0)
-                    print(f"✅ کلیک شد روی: {t or '(خالی)'}")
-                    return True
-                except Exception as e:
-                    print(f"❌ خطا در کلیک: {e}")
-                    return False
+    try:
+        for row in message.reply_markup.inline_keyboard:
+            for btn in row:
+                t = (btn.text or "").strip()
+                if t == exact_text or (exact_text and exact_text in t):
+                    try:
+                        await message.click(t if t else 0)
+                        print(f"✅ کلیک شد روی: {t or '(خالی)'}")
+                        return True
+                    except Exception as e:
+                        print(f"❌ خطا در کلیک: {e}")
+                        return False
+    except Exception as e:
+        print(f"❌ خطا click_exact: {e}")
     print(f"⚠️ دکمه «{exact_text}» پیدا نشد")
     return False
 
@@ -92,26 +102,32 @@ async def click_index(message: Message, index: int) -> bool:
 
 
 async def click_empty_fish_buttons(message: Message) -> bool:
-    """دکمه‌های خالی (ماهی داخل یخچال) — ارتقا را رد می‌کند"""
+    """از بالا به پایین روی دکمه‌های خالی (ماهی) کلیک می‌کند — ارتقا را رد می‌کند"""
     if not message.reply_markup or not message.reply_markup.inline_keyboard:
         return False
     clicked = False
     idx = 0
-    for row in message.reply_markup.inline_keyboard:
-        for btn in row:
-            t = (btn.text or "").strip()
-            if "ارتقا" in (btn.text or ""):
+    try:
+        for row in message.reply_markup.inline_keyboard:
+            for btn in row:
+                raw = btn.text or ""
+                t = raw.strip()
+                if "ارتقا" in raw:
+                    idx += 1
+                    continue
+                if not t or t in ("\u200b", "​", "‌", ""):
+                    try:
+                        await message.click(idx)
+                        print(f"✅ کلیک ماهی خالی index={idx}")
+                        clicked = True
+                        await asyncio.sleep(1.5)
+                        # فقط اولین ماهی را انتخاب کن تا منو باز شود
+                        return True
+                    except Exception as e:
+                        print(f"❌ خطا کلیک ماهی: {e}")
                 idx += 1
-                continue
-            if not t or t in ("\u200b", "​", "‌", ""):
-                try:
-                    await message.click(idx)
-                    print(f"✅ کلیک ماهی خالی index={idx}")
-                    clicked = True
-                    await asyncio.sleep(1.5)
-                except Exception as e:
-                    print(f"❌ خطا کلیک ماهی: {e}")
-            idx += 1
+    except Exception as e:
+        print(f"❌ خطا click_empty: {e}")
     return clicked
 
 
@@ -159,7 +175,7 @@ def choose_fish_action(text: str, rules: dict) -> str:
 
 
 async def handle_fish_catch(message: Message, rules: dict):
-    text = message.text or message.caption or ""
+    text = safe_text(message)
     action = choose_fish_action(text, rules)
     print(f"🎣 تصمیم صید: {action} | سطح: {detect_fish_level(text)}")
     if action == "fridge":
@@ -175,9 +191,9 @@ async def handle_fish_catch(message: Message, rules: dict):
 
 
 async def handle_fridge_message(message: Message, phone: str, rules: dict, cooked_rules: dict):
-    text = message.text or message.caption or ""
+    text = safe_text(message)
 
-    # صفحه پخت و پز / تأیید
+    # ۱) صفحه پخت
     if "پخت و پز" in text or "آیا از پخیدن" in text or "درحال پخیدن" in text:
         wait = parse_wait_seconds(text)
         if wait:
@@ -187,16 +203,45 @@ async def handle_fridge_message(message: Message, phone: str, rules: dict, cooke
             await click_index(message, 0)
         return
 
-    # بعد از انتخاب ماهی: فروش / پیشی / بپوخش
-    # دکمه‌ها: [0] فروش [1] پیشی [2] خالی=بپوخش
-    if has_btn(message, BTN_SELL, BTN_CAT) or "میخوای چیکارش کنی" in text or "پخته شده" in text:
-        is_cooked = "پخته شده" in text
+    # ۲) لیست یخچال — اول این چک شود
+    is_list = (
+        "ظرفیت یخچال" in text
+        or ("یخچال میویی" in text and any("ارتقا" in t for t in btn_texts(message)))
+    )
+    if is_list and not has_btn(message, BTN_SELL, BTN_CAT):
+        if "خالی است" in text:
+            print("❄️ یخچال خالی")
+            return
+
+        is_cooked = "پخته" in text
+        level = detect_fish_level(text)
+        action_map = cooked_rules if is_cooked else rules
+        action = action_map.get(level, "fridge") if level else "fridge"
+
+        print(f"❄️ لیست یخچال | سطح={level} | پخته={is_cooked} | عمل={action}")
+
+        if action == "keep":
+            print("🧊 نگهداری — کلیک نمی‌کنم")
+            return
+
+        await click_empty_fish_buttons(message)
+        return
+
+    # ۳) منوی بعد از انتخاب ماهی
+    # [0] فروش  [1] پیشی  [2] خالی=بپوخش
+    if has_btn(message, BTN_SELL, BTN_CAT) or "میخوای چیکارش کنی" in text:
+        is_cooked = "پخته" in text
         level = detect_fish_level(text)
         action_map = cooked_rules if is_cooked else rules
         action = action_map.get(level, "sell") if level else "sell"
 
+        print(f"🐟 منوی ماهی | سطح={level} | پخته={is_cooked} | عمل={action}")
+
+        if action == "keep":
+            print("🧊 نگهداری")
+            return
+
         if not is_cooked and action == "fridge":
-            # بپوخش = index 2 (دکمه خالی)
             print("🍳 بپوخش (index=2)")
             await click_index(message, 2)
             return
@@ -209,13 +254,6 @@ async def handle_fridge_message(message: Message, phone: str, rules: dict, cooke
             await click_exact(message, BTN_SELL)
         return
 
-    # لیست یخچال
-    if "یخچال میویی" in text or "ظرفیت یخچال" in text:
-        if "خالی است" in text:
-            print("❄️ یخچال خالی")
-            return
-        await click_empty_fish_buttons(message)
-
 
 async def process_bot_message(c: Client, message: Message, phone: str):
     try:
@@ -223,21 +261,23 @@ async def process_bot_message(c: Client, message: Message, phone: str):
         if not u or not u["is_active"]:
             return
 
-        text = message.text or message.caption or ""
-        print(f"📩 [{phone}] پیام: {(text or '')[:90]}")
+        text = safe_text(message)
+        print(f"📩 [{phone}] پیام: {text[:90]}")
 
-        if message.reply_markup and message.reply_markup.inline_keyboard:
-            print("🔘 دکمه‌ها:")
-            for ri, row in enumerate(message.reply_markup.inline_keyboard):
-                for bi, btn in enumerate(row):
-                    print(f"   [{ri},{bi}] = '{btn.text}'")
+        try:
+            if message.reply_markup and message.reply_markup.inline_keyboard:
+                print("🔘 دکمه‌ها:")
+                for ri, row in enumerate(message.reply_markup.inline_keyboard):
+                    for bi, btn in enumerate(row):
+                        print(f"   [{ri},{bi}] = '{btn.text}'")
+        except Exception:
+            pass
 
         harvest_btn = (u.get("harvest_button") or "برداشت میو پوینت ها").strip()
         rescue_btn = (u.get("rescue_button") or "نجات پیشی خیابونی").strip()
         rules = u.get("fish_rules") or DEFAULT_FISH_RULES
         cooked_rules = u.get("cooked_rules") or DEFAULT_COOKED_RULES
 
-        # تایم‌ها
         if "ماهیا هنوز خوابن" in text or ("باید" in text and "صبر" in text):
             wait = parse_wait_seconds(text)
             if wait:
@@ -250,24 +290,21 @@ async def process_bot_message(c: Client, message: Message, phone: str):
                 set_cd(phone, "meow", wait + 3)
                 print(f"⏳ cooldown میو: {wait}s")
 
-        # نجات
         if u.get("rescue_enabled") and ("نجات پیشی" in text or "پیشی خیابونی" in text):
             asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
             return
 
-        # یخچال / پخت
         if u.get("catch_enabled") and (
             "یخچال میویی" in text
             or "پخت و پز" in text
             or "میخوای چیکارش کنی" in text
             or "درحال پخیدن" in text
             or "ظرفیت یخچال" in text
-            or "پخته شده" in text
+            or "پخته" in text
         ):
             await handle_fridge_message(message, phone, rules, cooked_rules)
             return
 
-        # صید
         if u.get("catch_enabled"):
             has_fish_btns = has_btn(message, BTN_SELL, BTN_CAT, BTN_FRIDGE)
             if has_fish_btns or ("گرفتید" in text and "🎣" in text):
@@ -275,7 +312,6 @@ async def process_bot_message(c: Client, message: Message, phone: str):
                     await handle_fish_catch(message, rules)
                     return
 
-        # برداشت
         if u.get("fish_enabled") and has_btn(message, harvest_btn, "برداشت میو"):
             await click_exact(message, harvest_btn)
 
