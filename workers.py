@@ -4,7 +4,7 @@ import time
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_USER_ID
-from database import get_user, get_all_users, DEFAULT_FISH_RULES
+from database import get_user, get_all_users, DEFAULT_FISH_RULES, DEFAULT_COOKED_RULES
 
 active_tasks = {}
 
@@ -14,19 +14,16 @@ BTN_FRIDGE = "بندازش تو یخچال"
 BTN_COOK = "بپوخش"
 BTN_UPGRADE_FRIDGE = "ارتقا سطح یخچال"
 
-# cooldown per phone: {"meow": timestamp, "fish": ts, "catch": ts, "cook": ts}
+# cooldown per phone
 cooldowns = {}
 
 
-def parse_wait_seconds(text: str) -> int | None:
-    """از متن تایم استخراج می‌کنه → ثانیه"""
+def parse_wait_seconds(text: str):
     if not text:
         return None
-    # باید 25:00 صبر کنی  /  زمان مورد نیاز پخیدن : 1:00
     m = re.search(r"(?:باید|پخیدن\s*:)\s*(\d{1,3}):(\d{2})", text)
     if m:
         return int(m.group(1)) * 60 + int(m.group(2))
-    # بعد از 4:15 میتونی
     m = re.search(r"بعد از\s*(\d{1,3}):(\d{2})", text)
     if m:
         return int(m.group(1)) * 60 + int(m.group(2))
@@ -42,11 +39,10 @@ def set_cd(phone: str, key: str, seconds: int):
 def get_cd_left(phone: str, key: str) -> float:
     if phone not in cooldowns:
         return 0
-    left = cooldowns[phone].get(key, 0) - time.time()
-    return max(0, left)
+    return max(0, cooldowns[phone].get(key, 0) - time.time())
 
 
-def btn_texts(message: Message) -> list[str]:
+def btn_texts(message: Message) -> list:
     if not message.reply_markup or not message.reply_markup.inline_keyboard:
         return []
     out = []
@@ -59,9 +55,9 @@ def btn_texts(message: Message) -> list[str]:
 def has_btn(message: Message, *names) -> bool:
     texts = btn_texts(message)
     for n in names:
-        n = n.strip()
+        n = (n or "").strip()
         for t in texts:
-            if t == n or n in t:
+            if t == n or (n and n in t):
                 return True
     return False
 
@@ -73,7 +69,7 @@ async def click_exact(message: Message, exact_text: str) -> bool:
     for row in message.reply_markup.inline_keyboard:
         for btn in row:
             t = (btn.text or "").strip()
-            if t == exact_text or exact_text in t:
+            if t == exact_text or (exact_text and exact_text in t):
                 try:
                     await message.click(t if t else 0)
                     print(f"✅ کلیک شد روی: {t or '(خالی)'}")
@@ -96,7 +92,7 @@ async def click_index(message: Message, index: int) -> bool:
 
 
 async def click_empty_fish_buttons(message: Message) -> bool:
-    """دکمه‌های خالی (ماهی داخل یخچال) رو یکی‌یکی می‌زنه"""
+    """دکمه‌های خالی (ماهی داخل یخچال) — ارتقا را رد می‌کند"""
     if not message.reply_markup or not message.reply_markup.inline_keyboard:
         return False
     clicked = False
@@ -104,16 +100,15 @@ async def click_empty_fish_buttons(message: Message) -> bool:
     for row in message.reply_markup.inline_keyboard:
         for btn in row:
             t = (btn.text or "").strip()
-            # خالی یا zero-width
-            if not t or t in ("\u200b", "​", "‌"):
-                if "ارتقا" in (btn.text or ""):
-                    idx += 1
-                    continue
+            if "ارتقا" in (btn.text or ""):
+                idx += 1
+                continue
+            if not t or t in ("\u200b", "​", "‌", ""):
                 try:
                     await message.click(idx)
                     print(f"✅ کلیک ماهی خالی index={idx}")
                     clicked = True
-                    await asyncio.sleep(1.2)
+                    await asyncio.sleep(1.5)
                 except Exception as e:
                     print(f"❌ خطا کلیک ماهی: {e}")
             idx += 1
@@ -147,9 +142,9 @@ async def rescue_loop(client: Client, chat_id: int, msg_id: int, rescue_btn: str
             break
 
 
-def detect_fish_level(text: str) -> str | None:
+def detect_fish_level(text: str):
     for lv in ["افسانه", "حماسی", "کمیاب", "غیرمعمول", "معمولی", "اسطوره"]:
-        if lv in text:
+        if lv in (text or ""):
             return lv
     return None
 
@@ -179,99 +174,113 @@ async def handle_fish_catch(message: Message, rules: dict):
         await click_exact(message, BTN_SELL)
 
 
-async def handle_fridge_message(message: Message, phone: str):
-    """پردازش پیام یخچال / پخت"""
+async def handle_fridge_message(message: Message, phone: str, rules: dict, cooked_rules: dict):
     text = message.text or message.caption or ""
 
-    # صفحه تأیید پخت
+    # صفحه پخت و پز / تأیید
     if "پخت و پز" in text or "آیا از پخیدن" in text or "درحال پخیدن" in text:
         wait = parse_wait_seconds(text)
         if wait:
-            set_cd(phone, "cook", wait + 5)
-            print(f"⏳ تایم پخت: {wait} ثانیه")
-        # تأیید = دکمه اول
-        await click_index(message, 0)
+            set_cd(phone, "cook", wait + 8)
+            print(f"⏳ تایم پخت: {wait}s")
+        if message.reply_markup:
+            await click_index(message, 0)
         return
 
-    # «میخوای چیکارش کنی؟» → بپوخش
-    if "میخوای چیکارش کنی" in text or "میخوای چیکار" in text:
-        if has_btn(message, BTN_COOK, "بپز", "پخت"):
-            await click_exact(message, BTN_COOK)
-            if not has_btn(message, BTN_COOK):
-                # شاید اسم فرق داشته باشه
-                for t in btn_texts(message):
-                    if "پز" in t or "پخت" in t:
-                        await click_exact(message, t)
-                        break
+    # بعد از انتخاب ماهی: فروش / پیشی / بپوخش
+    # دکمه‌ها: [0] فروش [1] پیشی [2] خالی=بپوخش
+    if has_btn(message, BTN_SELL, BTN_CAT) or "میخوای چیکارش کنی" in text or "پخته شده" in text:
+        is_cooked = "پخته شده" in text
+        level = detect_fish_level(text)
+        action_map = cooked_rules if is_cooked else rules
+        action = action_map.get(level, "sell") if level else "sell"
+
+        if not is_cooked and action == "fridge":
+            # بپوخش = index 2 (دکمه خالی)
+            print("🍳 بپوخش (index=2)")
+            await click_index(message, 2)
+            return
+
+        if action == "cat":
+            ok = await click_exact(message, BTN_CAT)
+            if not ok:
+                await click_exact(message, BTN_SELL)
+        else:
+            await click_exact(message, BTN_SELL)
         return
 
-    # لیست یخچال → دکمه‌های خالی = ماهی
+    # لیست یخچال
     if "یخچال میویی" in text or "ظرفیت یخچال" in text:
         if "خالی است" in text:
             print("❄️ یخچال خالی")
             return
-        # کلیک روی ماهی‌های خالی (نه ارتقا)
         await click_empty_fish_buttons(message)
 
 
 async def process_bot_message(c: Client, message: Message, phone: str):
-    u = get_user(phone)
-    if not u or not u["is_active"]:
-        return
+    try:
+        u = get_user(phone)
+        if not u or not u["is_active"]:
+            return
 
-    text = message.text or message.caption or ""
-    print(f"📩 [{phone}] پیام: {text[:90]}")
+        text = message.text or message.caption or ""
+        print(f"📩 [{phone}] پیام: {(text or '')[:90]}")
 
-    if message.reply_markup and message.reply_markup.inline_keyboard:
-        print("🔘 دکمه‌ها:")
-        for ri, row in enumerate(message.reply_markup.inline_keyboard):
-            for bi, btn in enumerate(row):
-                print(f"   [{ri},{bi}] = '{btn.text}'")
+        if message.reply_markup and message.reply_markup.inline_keyboard:
+            print("🔘 دکمه‌ها:")
+            for ri, row in enumerate(message.reply_markup.inline_keyboard):
+                for bi, btn in enumerate(row):
+                    print(f"   [{ri},{bi}] = '{btn.text}'")
 
-    harvest_btn = (u.get("harvest_button") or "برداشت میو پوینت ها").strip()
-    rescue_btn = (u.get("rescue_button") or "نجات پیشی خیابونی").strip()
-    rules = u.get("fish_rules") or DEFAULT_FISH_RULES
+        harvest_btn = (u.get("harvest_button") or "برداشت میو پوینت ها").strip()
+        rescue_btn = (u.get("rescue_button") or "نجات پیشی خیابونی").strip()
+        rules = u.get("fish_rules") or DEFAULT_FISH_RULES
+        cooked_rules = u.get("cooked_rules") or DEFAULT_COOKED_RULES
 
-    # تایم‌ها
-    if "ماهیا هنوز خوابن" in text or "باید" in text and "صبر" in text:
-        wait = parse_wait_seconds(text)
-        if wait:
-            set_cd(phone, "catch", wait + 3)
-            print(f"⏳ cooldown ماهی: {wait}s")
+        # تایم‌ها
+        if "ماهیا هنوز خوابن" in text or ("باید" in text and "صبر" in text):
+            wait = parse_wait_seconds(text)
+            if wait:
+                set_cd(phone, "catch", wait + 3)
+                print(f"⏳ cooldown ماهی: {wait}s")
 
-    if "بعد از" in text and "میو" in text:
-        wait = parse_wait_seconds(text)
-        if wait:
-            set_cd(phone, "meow", wait + 3)
-            print(f"⏳ cooldown میو: {wait}s")
+        if "بعد از" in text and "میو" in text:
+            wait = parse_wait_seconds(text)
+            if wait:
+                set_cd(phone, "meow", wait + 3)
+                print(f"⏳ cooldown میو: {wait}s")
 
-    # نجات
-    if u.get("rescue_enabled") and ("نجات پیشی" in text or "پیشی خیابونی" in text):
-        asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
-        return
+        # نجات
+        if u.get("rescue_enabled") and ("نجات پیشی" in text or "پیشی خیابونی" in text):
+            asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
+            return
 
-    # یخچال / پخت
-    if u.get("catch_enabled") and (
-        "یخچال میویی" in text
-        or "پخت و پز" in text
-        or "میخوای چیکارش کنی" in text
-        or "درحال پخیدن" in text
-        or "ظرفیت یخچال" in text
-    ):
-        await handle_fridge_message(message, phone)
-        return
+        # یخچال / پخت
+        if u.get("catch_enabled") and (
+            "یخچال میویی" in text
+            or "پخت و پز" in text
+            or "میخوای چیکارش کنی" in text
+            or "درحال پخیدن" in text
+            or "ظرفیت یخچال" in text
+            or "پخته شده" in text
+        ):
+            await handle_fridge_message(message, phone, rules, cooked_rules)
+            return
 
-    # صید ماهی
-    if u.get("catch_enabled"):
-        has_fish_btns = has_btn(message, BTN_SELL, BTN_CAT, BTN_FRIDGE)
-        if has_fish_btns or ("گرفتید" in text and "🎣" in text):
-            if has_fish_btns:
-                await handle_fish_catch(message, rules)
-                return
+        # صید
+        if u.get("catch_enabled"):
+            has_fish_btns = has_btn(message, BTN_SELL, BTN_CAT, BTN_FRIDGE)
+            if has_fish_btns or ("گرفتید" in text and "🎣" in text):
+                if has_fish_btns:
+                    await handle_fish_catch(message, rules)
+                    return
 
-    # برداشت
-    if u.get("fish_enabled") and has_btn(message, harvest_btn, "برداشت میو"):
-        await click_exact(message, harvest_btn)
+        # برداشت
+        if u.get("fish_enabled") and has_btn(message, harvest_btn, "برداشت میو"):
+            await click_exact(message, harvest_btn)
+
+    except Exception as e:
+        print(f"⚠️ خطا پردازش پیام [{phone}]: {e}")
 
 
 async def selfbot_worker(phone: str):
@@ -308,7 +317,7 @@ async def selfbot_worker(phone: str):
             try:
                 async for _ in client.get_dialogs(limit=200):
                     pass
-                print(f"📥 دیالوگ‌ها لود شد")
+                print("📥 دیالوگ‌ها لود شد")
             except Exception as e:
                 print(f"⚠️ دیالوگ: {e}")
 
@@ -394,7 +403,6 @@ async def selfbot_worker(phone: str):
                     await asyncio.sleep(interval)
 
             async def fridge_loop():
-                """هر چند وقت یک‌بار یخچال رو چک/بپز"""
                 while True:
                     u = get_user(phone)
                     if not u or not u["is_active"] or not u.get("catch_enabled"):
@@ -435,7 +443,7 @@ async def selfbot_worker(phone: str):
         finally:
             try:
                 await client.stop()
-            except:
+            except Exception:
                 pass
             print(f"🛑 {phone} متوقف شد")
 
