@@ -14,7 +14,6 @@ from workers import start_worker, stop_worker, start_all_active
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# ---------------------- Event Loop ----------------------
 LOOP = asyncio.new_event_loop()
 
 def _run_loop():
@@ -33,7 +32,6 @@ def run_async(coro, timeout=90):
     except Exception as e:
         return f"error: {str(e)}"
 
-# ---------------------- Keep Alive ----------------------
 def keep_alive():
     while True:
         try:
@@ -46,15 +44,12 @@ def keep_alive():
 
 threading.Thread(target=keep_alive, daemon=True).start()
 
-# ---------------------- Init ----------------------
 init_db()
 
-# ---------------------- روت تست ----------------------
 @app.route("/test")
 def test():
     return "OK - Selfbot is alive"
 
-# ---------------------- روت‌های لاگین اکانت ----------------------
 @app.route("/")
 def index():
     return render_template("login.html")
@@ -120,7 +115,6 @@ def verify_password():
         flash(str(result), "danger")
         return redirect(url_for("index"))
 
-# ---------------------- پنل ادمین ----------------------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
@@ -194,28 +188,32 @@ def save_settings():
     catch = request.form.get("catch_enabled") == "on"
     active = request.form.get("is_active") == "on"
 
-    harvest_button = request.form.get("harvest_button", "").strip() or "برداشت میو پوینت ها 🧲"
-    rescue_button = request.form.get("rescue_button", "").strip() or "نجات پیشی خیابونی 🐱 🐈"
+    harvest_button = request.form.get("harvest_button", "").strip() or "برداشت میو پوینت ها"
+    rescue_button = request.form.get("rescue_button", "").strip() or "نجات پیشی خیابونی"
 
     try:
         meow_interval = int(request.form.get("meow_interval") or 300)
-    except:
+    except Exception:
         meow_interval = 300
     try:
         fish_interval = int(request.form.get("fish_interval") or 600)
-    except:
+    except Exception:
         fish_interval = 600
     try:
         catch_interval = int(request.form.get("catch_interval") or 120)
-    except:
+    except Exception:
         catch_interval = 120
 
     levels = ["افسانه", "حماسی", "کمیاب", "غیرمعمول", "معمولی", "اسطوره"]
     fish_rules = {}
+    cooked_rules = {}
     for lv in levels:
         val = request.form.get(f"rule_{lv}", "sell")
         if val in ("sell", "cat", "fridge"):
             fish_rules[lv] = val
+        cval = request.form.get(f"cooked_{lv}", "sell")
+        if cval in ("sell", "cat"):
+            cooked_rules[lv] = cval
 
     save_user(
         phone,
@@ -233,6 +231,7 @@ def save_settings():
         fish_interval=fish_interval,
         catch_interval=catch_interval,
         fish_rules=fish_rules,
+        cooked_rules=cooked_rules,
     )
 
     if active:
@@ -272,6 +271,7 @@ def refresh_groups():
             fish_interval=user.get("fish_interval", 600),
             catch_interval=user.get("catch_interval", 120),
             fish_rules=user.get("fish_rules"),
+            cooked_rules=user.get("cooked_rules"),
         )
         flash(f"{len(groups)} گروه دریافت شد", "success")
     else:
@@ -299,7 +299,6 @@ def logout():
     session.clear()
     return redirect(url_for("admin"))
 
-# ---------------------- Error Handler ----------------------
 @app.errorhandler(Exception)
 def handle_exception(e):
     import traceback
@@ -317,7 +316,6 @@ def handle_exception(e):
     </div>
     """, 500
 
-# ---------------------- Start ----------------------
 if __name__ == "__main__":
     start_all_active(LOOP)
     port = int(os.getenv("PORT", 5000))
