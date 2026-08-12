@@ -12,10 +12,27 @@ BTN_SELL = "فروش ماهی"
 BTN_CAT = "بده پیشی بخوره"
 BTN_FRIDGE = "بندازش تو یخچال"
 
-HARVEST_CD = 30 * 60      # 30 دقیقه بین هر برداشت
-FRIDGE_CHECK_CD = 20 * 60  # 20 دقیقه بین چک یخچال
+HARVEST_CD = 30 * 60
+FRIDGE_CHECK_CD = 20 * 60
 
 cooldowns = {}
+
+# صف سراسری بین همه اکانت‌ها
+_global_lock = asyncio.Lock()
+_last_global_action = 0.0
+GLOBAL_GAP = 10  # ثانیه بین هر کلیک/ارسال
+
+
+async def global_slot(tag: str = ""):
+    """صف مشترک — قبل از هر کلیک یا send_message"""
+    global _last_global_action
+    async with _global_lock:
+        now = time.time()
+        wait = GLOBAL_GAP - (now - _last_global_action)
+        if wait > 0:
+            print(f"🧊 صف {wait:.1f}s {tag}")
+            await asyncio.sleep(wait)
+        _last_global_action = time.time()
 
 
 def safe_text(message: Message) -> str:
@@ -82,6 +99,7 @@ async def click_exact(message: Message, exact_text: str) -> bool:
                 t = (btn.text or "").strip()
                 if t == exact_text or (exact_text and exact_text in t):
                     try:
+                        await global_slot(f"click:{t[:20]}")
                         await message.click(t if t else 0)
                         print(f"✅ کلیک شد روی: {t or '(خالی)'}")
                         return True
@@ -96,6 +114,7 @@ async def click_exact(message: Message, exact_text: str) -> bool:
 
 async def click_index(message: Message, index: int) -> bool:
     try:
+        await global_slot(f"idx:{index}")
         await message.click(index)
         print(f"✅ کلیک index={index}")
         return True
@@ -105,7 +124,6 @@ async def click_index(message: Message, index: int) -> bool:
 
 
 async def click_empty_fish_buttons(message: Message) -> bool:
-    """از بالا به پایین اولین دکمه خالی (ماهی) را می‌زند — ارتقا را رد می‌کند"""
     if not message.reply_markup or not message.reply_markup.inline_keyboard:
         return False
     idx = 0
@@ -119,6 +137,7 @@ async def click_empty_fish_buttons(message: Message) -> bool:
                     continue
                 if not t or t in ("\u200b", "​", "‌", ""):
                     try:
+                        await global_slot(f"fish:{idx}")
                         await message.click(idx)
                         print(f"✅ کلیک ماهی خالی index={idx}")
                         await asyncio.sleep(1.5)
@@ -144,12 +163,14 @@ async def rescue_loop(client: Client, chat_id: int, msg_id: int, rescue_btn: str
                 for row in msg.reply_markup.inline_keyboard:
                     for btn in row:
                         if target in (btn.text or ""):
+                            await global_slot(f"rescue:{i+1}")
                             await msg.click(btn.text)
                             clicked = True
                             break
                     if clicked:
                         break
             if not clicked:
+                await global_slot(f"rescue0:{i+1}")
                 await msg.click(0)
             print(f"🚑 نجات کلیک {i+1}")
             await asyncio.sleep(1.4)
@@ -181,7 +202,6 @@ async def handle_fish_catch(message: Message, rules: dict, phone: str):
     if action == "fridge":
         ok = await click_exact(message, BTN_FRIDGE)
         if ok:
-            # بعد از گذاشتن تو یخچال، زودتر چک کن
             set_cd(phone, "fridge_check", 8)
         else:
             await click_exact(message, BTN_SELL)
@@ -196,7 +216,6 @@ async def handle_fish_catch(message: Message, rules: dict, phone: str):
 async def handle_fridge_message(message: Message, phone: str, rules: dict, cooked_rules: dict):
     text = safe_text(message)
 
-    # ۱) صفحه پخت
     if "پخت و پز" in text or "آیا از پخیدن" in text or "درحال پخیدن" in text:
         wait = parse_wait_seconds(text)
         if wait:
@@ -206,7 +225,6 @@ async def handle_fridge_message(message: Message, phone: str, rules: dict, cooke
             await click_index(message, 0)
         return
 
-    # ۲) لیست یخچال
     is_list = (
         "ظرفیت یخچال" in text
         or ("یخچال میویی" in text and any("ارتقا" in t for t in btn_texts(message)))
@@ -224,13 +242,12 @@ async def handle_fridge_message(message: Message, phone: str, rules: dict, cooke
         print(f"❄️ لیست یخچال | سطح={level} | پخته={is_cooked} | عمل={action}")
 
         if action == "keep":
-            print("🧊 نگهداری — کلیک نمی‌کنم")
+            print("🧊 نگهداری")
             return
 
         await click_empty_fish_buttons(message)
         return
 
-    # ۳) منوی بعد از انتخاب ماهی
     if has_btn(message, BTN_SELL, BTN_CAT, "بپوخش") or "میخوای چیکارش کنی" in text:
         is_cooked = "پخته" in text
         level = detect_fish_level(text)
@@ -284,27 +301,24 @@ async def process_bot_message(c: Client, message: Message, phone: str):
         rules = u.get("fish_rules") or DEFAULT_FISH_RULES
         cooked_rules = u.get("cooked_rules") or DEFAULT_COOKED_RULES
 
-        # تایم از خود ربات
         if "ماهیا هنوز خوابن" in text or ("باید" in text and "صبر" in text):
             wait = parse_wait_seconds(text)
             if wait:
                 set_cd(phone, "catch", wait + 3)
-                print(f"⏳ cooldown ماهی (از ربات): {wait}s")
+                print(f"⏳ cooldown ماهی: {wait}s")
 
         if "بعد از" in text and "میو" in text:
             wait = parse_wait_seconds(text)
             if wait:
                 set_cd(phone, "meow", wait + 3)
-                print(f"⏳ cooldown میو (از ربات): {wait}s")
+                print(f"⏳ cooldown میو: {wait}s")
 
-        # نجات
         if u.get("rescue_enabled") and ("نجات پیشی" in text or "پیشی خیابونی" in text):
             if "موفقیت نجات" in text or "صاحب یک خونه" in text:
                 return
             asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
             return
 
-        # یخچال / پخت
         if u.get("catch_enabled") and (
             "یخچال میویی" in text
             or "پخت و پز" in text
@@ -316,7 +330,6 @@ async def process_bot_message(c: Client, message: Message, phone: str):
             await handle_fridge_message(message, phone, rules, cooked_rules)
             return
 
-        # صید
         if u.get("catch_enabled"):
             has_fish_btns = has_btn(message, BTN_SELL, BTN_CAT, BTN_FRIDGE)
             if has_fish_btns or ("گرفتید" in text and "🎣" in text):
@@ -324,16 +337,16 @@ async def process_bot_message(c: Client, message: Message, phone: str):
                     await handle_fish_catch(message, rules, phone)
                     return
 
-        # برداشت — فقط یک‌بار هر ۳۰ دقیقه
+        # برداشت — هر ۳۰ دقیقه یک‌بار
         if u.get("fish_enabled") and has_btn(message, harvest_btn, "برداشت میو"):
             left = get_cd_left(phone, "harvest")
             if left > 0:
-                print(f"⏳ برداشت صبر: {int(left)}s باقی")
+                print(f"⏳ برداشت صبر: {int(left)}s")
             else:
                 ok = await click_exact(message, harvest_btn)
                 if ok:
                     set_cd(phone, "harvest", HARVEST_CD)
-                    print(f"✅ برداشت OK — تا {HARVEST_CD // 60} دقیقه دوباره نمی‌زنم")
+                    print(f"✅ برداشت OK — {HARVEST_CD // 60} دقیقه صبر")
             return
 
     except Exception as e:
@@ -413,10 +426,10 @@ async def selfbot_worker(phone: str):
                     if left > 0:
                         await asyncio.sleep(min(left, 30))
                         continue
-                    # fallback داشبورد فقط وقتی ربات تایم نداده
                     interval = max(30, int(u.get("meow_interval") or 300))
                     for cid in chat_ids:
                         try:
+                            await global_slot("میو")
                             await client.send_message(cid, "میو")
                             print(f"😺 [{phone}] میو → {cid}")
                             await asyncio.sleep(2)
@@ -430,14 +443,10 @@ async def selfbot_worker(phone: str):
                     if not u or not u["is_active"] or not u["fish_enabled"]:
                         await asyncio.sleep(15)
                         continue
-                    # اگر تازه برداشت زدم، صبر کن
-                    left_h = get_cd_left(phone, "harvest")
-                    if left_h > HARVEST_CD - 60:
-                        # تازه پیشی+برداشت شده؛ تا نزدیک پایان CD صبر نکن برای پیشی بعدی
-                        pass
                     interval = max(30, int(u.get("fish_interval") or 600))
                     for cid in chat_ids:
                         try:
+                            await global_slot("پیشی")
                             await client.send_message(cid, "پیشی")
                             print(f"🐱 [{phone}] پیشی → {cid}")
                             await asyncio.sleep(4)
@@ -458,6 +467,7 @@ async def selfbot_worker(phone: str):
                     interval = max(30, int(u.get("catch_interval") or 120))
                     for cid in chat_ids:
                         try:
+                            await global_slot("ماهی")
                             await client.send_message(cid, "ماهی")
                             print(f"🎣 [{phone}] ماهی → {cid}")
                             await asyncio.sleep(3)
@@ -472,13 +482,11 @@ async def selfbot_worker(phone: str):
                         await asyncio.sleep(30)
                         continue
 
-                    # اگر در حال پختیم صبر کن
                     left_cook = get_cd_left(phone, "cook")
                     if left_cook > 0:
                         await asyncio.sleep(min(left_cook, 30))
                         continue
 
-                    # حداکثر هر ۲۰ دقیقه (مگر بعد از صید که CD کوتاه شده)
                     left_fr = get_cd_left(phone, "fridge_check")
                     if left_fr > 0:
                         await asyncio.sleep(min(left_fr, 60))
@@ -486,6 +494,7 @@ async def selfbot_worker(phone: str):
 
                     for cid in chat_ids:
                         try:
+                            await global_slot("یخچال")
                             await client.send_message(cid, "یخچال میویی")
                             print(f"❄️ [{phone}] چک یخچال → {cid}")
                             set_cd(phone, "fridge_check", FRIDGE_CHECK_CD)
