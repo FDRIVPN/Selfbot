@@ -6,6 +6,7 @@ from database import get_user, get_all_users
 
 active_tasks = {}
 
+
 async def click_exact(message: Message, exact_text: str) -> bool:
     """فقط اگر متن دکمه دقیقاً برابر باشه کلیک می‌کنه. هیچ fallback نداره."""
     if not exact_text or not message.reply_markup or not message.reply_markup.inline_keyboard:
@@ -38,10 +39,11 @@ async def rescue_loop(client: Client, chat_id: int, msg_id: int, rescue_btn: str
 
             clicked = False
             if rescue_btn:
+                target = rescue_btn.strip()
                 for row in msg.reply_markup.inline_keyboard:
                     for btn in row:
-                        if (btn.text or "").strip() == rescue_btn.strip():
-                            await msg.click(rescue_btn.strip())
+                        if (btn.text or "").strip() == target:
+                            await msg.click(target)
                             clicked = True
                             break
                     if clicked:
@@ -83,31 +85,51 @@ async def selfbot_worker(phone: str):
             in_memory=True
         )
 
-        @client.on_message(filters.chat(chat_ids) & filters.user(BOT_USER_ID))
-        async def handler(c: Client, message: Message):
-            u = get_user(phone)
-            if not u or not u["is_active"]:
-                return
-
-            text = message.text or message.caption or ""
-            print(f"📩 [{phone}] پیام دریافت شد: {text[:80]}")
-
-            harvest_btn = u.get("harvest_button") or "برداشت میو پوینت ها 🧲"
-            rescue_btn = u.get("rescue_button") or "نجات پیشی خیابونی 🐱 🐈"
-
-            # نجات پیشی خیابونی
-            if u.get("rescue_enabled") and "نجات پیشی خیابونی" in text:
-                asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
-                return
-
-            # فقط کلیک روی دکمه دقیق برداشت (بدون جستجوی کلمه میو/پیشی)
-            if u.get("fish_enabled"):
-                await click_exact(message, harvest_btn)
-
         try:
             await client.start()
             me = await client.get_me()
             print(f"✅ {phone} آنلاین شد → {me.first_name} (@{me.username})")
+
+            # --- resolve کردن peerهای گروه ---
+            valid_chat_ids = []
+            for cid in chat_ids:
+                try:
+                    chat = await client.get_chat(cid)
+                    valid_chat_ids.append(cid)
+                    title = getattr(chat, "title", None) or str(cid)
+                    print(f"✅ peer resolve شد: {cid} → {title}")
+                except Exception as e:
+                    print(f"⚠️ peer نامعتبر یا عضو نیست: {cid} → {e}")
+
+            if not valid_chat_ids:
+                print(f"❌ هیچ گروه معتبری برای {phone} پیدا نشد")
+                await client.stop()
+                await asyncio.sleep(30)
+                continue
+
+            chat_ids = valid_chat_ids
+            print(f"📋 گروه‌های معتبر {phone}: {chat_ids}")
+
+            @client.on_message(filters.chat(chat_ids) & filters.user(BOT_USER_ID))
+            async def handler(c: Client, message: Message):
+                u = get_user(phone)
+                if not u or not u["is_active"]:
+                    return
+
+                text = message.text or message.caption or ""
+                print(f"📩 [{phone}] پیام دریافت شد: {text[:80]}")
+
+                harvest_btn = u.get("harvest_button") or "برداشت میو پوینت ها 🧲"
+                rescue_btn = u.get("rescue_button") or "نجات پیشی خیابونی 🐱 🐈"
+
+                # نجات پیشی خیابونی
+                if u.get("rescue_enabled") and "نجات پیشی خیابونی" in text:
+                    asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
+                    return
+
+                # فقط کلیک روی دکمه دقیق برداشت
+                if u.get("fish_enabled"):
+                    await click_exact(message, harvest_btn)
 
             async def meow_loop():
                 while True:
