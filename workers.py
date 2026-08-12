@@ -2,21 +2,22 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from config import API_ID, API_HASH, BOT_USER_ID
-from database import get_user, get_all_users
+from database import get_user, get_all_users, DEFAULT_FISH_RULES
 
 active_tasks = {}
 
+BTN_SELL = "فروش ماهی"
+BTN_CAT = "بده پیشی بخوره"
+BTN_FRIDGE = "بندازش تو یخچال"
+
 
 async def click_exact(message: Message, exact_text: str) -> bool:
-    """فقط اگر متن دکمه دقیقاً برابر باشه کلیک می‌کنه. هیچ fallback نداره."""
     if not exact_text or not message.reply_markup or not message.reply_markup.inline_keyboard:
         return False
-
     exact_text = exact_text.strip()
     for row in message.reply_markup.inline_keyboard:
         for btn in row:
-            btn_text = (btn.text or "").strip()
-            if btn_text == exact_text:
+            if (btn.text or "").strip() == exact_text:
                 try:
                     await message.click(exact_text)
                     print(f"✅ کلیک شد روی: {exact_text}")
@@ -29,14 +30,12 @@ async def click_exact(message: Message, exact_text: str) -> bool:
 
 
 async def rescue_loop(client: Client, chat_id: int, msg_id: int, rescue_btn: str):
-    """اسپم کلیک روی دکمه دقیق نجات (اگر پیدا نشد دکمه اول)"""
     for i in range(40):
         try:
             msg = await client.get_messages(chat_id, msg_id)
             if not msg or not msg.reply_markup or not msg.reply_markup.inline_keyboard:
                 print("✅ دکمه نجات ناپدید شد")
                 break
-
             clicked = False
             if rescue_btn:
                 target = rescue_btn.strip()
@@ -48,15 +47,56 @@ async def rescue_loop(client: Client, chat_id: int, msg_id: int, rescue_btn: str
                             break
                     if clicked:
                         break
-
             if not clicked:
                 await msg.click(0)
-
             print(f"🚑 نجات کلیک {i+1}")
             await asyncio.sleep(1.4)
         except Exception as e:
             print(f"خطا نجات: {e}")
             break
+
+
+def detect_fish_level(text: str) -> str | None:
+    """سطح ماهی را از متن پیام پیدا می‌کند"""
+    levels = ["افسانه", "حماسی", "کمیاب", "غیرمعمول", "معمولی", "اسطوره"]
+    for lv in levels:
+        if lv in text:
+            return lv
+    return None
+
+
+def choose_fish_action(text: str, rules: dict) -> str:
+    """
+    برمی‌گرداند: sell | cat | fridge
+    """
+    # یخچال پر → فروش
+    if "یخچال پر" in text or "یخچال پره" in text:
+        return "sell"
+
+    level = detect_fish_level(text)
+    if level and level in rules:
+        return rules[level]
+
+    # پیش‌فرض
+    return rules.get(level, "sell") if level else "sell"
+
+
+async def handle_fish_catch(message: Message, rules: dict):
+    text = message.text or message.caption or ""
+    action = choose_fish_action(text, rules)
+    print(f"🎣 تصمیم صید: {action} | سطح: {detect_fish_level(text)}")
+
+    if action == "fridge":
+        ok = await click_exact(message, BTN_FRIDGE)
+        if not ok:
+            # اگر یخچال ممکن نبود، بفروش
+            await click_exact(message, BTN_SELL)
+    elif action == "cat":
+        ok = await click_exact(message, BTN_CAT)
+        if not ok:
+            await click_exact(message, BTN_SELL)
+    else:
+        await click_exact(message, BTN_SELL)
 
 
 async def selfbot_worker(phone: str):
@@ -90,7 +130,6 @@ async def selfbot_worker(phone: str):
             me = await client.get_me()
             print(f"✅ {phone} آنلاین شد → {me.first_name} (@{me.username})")
 
-            # پر کردن کش peerها از دیالوگ‌ها
             try:
                 async for _ in client.get_dialogs(limit=200):
                     pass
@@ -98,7 +137,6 @@ async def selfbot_worker(phone: str):
             except Exception as e:
                 print(f"⚠️ خطا در لود دیالوگ‌ها {phone}: {e}")
 
-            # سعی در resolve — اگر نشد هم ادامه بده
             valid_chat_ids = []
             for cid in chat_ids:
                 try:
@@ -126,24 +164,39 @@ async def selfbot_worker(phone: str):
                     return
 
                 text = message.text or message.caption or ""
-                print(f"📩 [{phone}] پیام دریافت شد: {text[:80]}")
+                print(f"📩 [{phone}] پیام دریافت شد: {text[:100]}")
 
-                # نمایش متن دقیق دکمه‌ها (برای دیباگ)
                 if message.reply_markup and message.reply_markup.inline_keyboard:
-                    print(f"🔘 دکمه‌های پیام:")
+                    print("🔘 دکمه‌های پیام:")
                     for ri, row in enumerate(message.reply_markup.inline_keyboard):
                         for bi, btn in enumerate(row):
                             print(f"   [{ri},{bi}] = '{btn.text}'")
 
                 harvest_btn = u.get("harvest_button") or "برداشت میو پوینت ها 🧲"
                 rescue_btn = u.get("rescue_button") or "نجات پیشی خیابونی 🐱 🐈"
+                rules = u.get("fish_rules") or DEFAULT_FISH_RULES
 
-                # نجات پیشی خیابونی
+                # نجات
                 if u.get("rescue_enabled") and "نجات پیشی خیابونی" in text:
                     asyncio.create_task(rescue_loop(c, message.chat.id, message.id, rescue_btn))
                     return
 
-                # فقط کلیک روی دکمه دقیق برداشت
+                # صید ماهی (پیام گرفتن ماهی)
+                if u.get("catch_enabled") and (
+                    "گرفتید" in text or "🎣" in text or "فروش ماهی" in (
+                        (b.text or "") for row in (message.reply_markup.inline_keyboard if message.reply_markup else []) for b in row
+                    )
+                ):
+                    # اگر دکمه‌های صید هست
+                    has_fish_btns = False
+                    if message.reply_markup and message.reply_markup.inline_keyboard:
+                        all_btns = [(b.text or "") for row in message.reply_markup.inline_keyboard for b in row]
+                        has_fish_btns = any(x in all_btns for x in [BTN_SELL, BTN_CAT, BTN_FRIDGE])
+                    if has_fish_btns:
+                        await handle_fish_catch(message, rules)
+                        return
+
+                # برداشت میو
                 if u.get("fish_enabled"):
                     await click_exact(message, harvest_btn)
 
@@ -179,8 +232,25 @@ async def selfbot_worker(phone: str):
                             print(f"❌ خطا پیشی {phone}: {e}")
                     await asyncio.sleep(interval)
 
+            async def catch_loop():
+                while True:
+                    u = get_user(phone)
+                    if not u or not u["is_active"] or not u.get("catch_enabled"):
+                        await asyncio.sleep(15)
+                        continue
+                    interval = max(30, int(u.get("catch_interval") or 120))
+                    for cid in chat_ids:
+                        try:
+                            await client.send_message(cid, "ماهی")
+                            print(f"🎣 [{phone}] ماهی فرستاده شد به {cid}")
+                            await asyncio.sleep(3)
+                        except Exception as e:
+                            print(f"❌ خطا ماهی {phone}: {e}")
+                    await asyncio.sleep(interval)
+
             meow_task = asyncio.create_task(meow_loop())
             fish_task = asyncio.create_task(fish_loop())
+            catch_task = asyncio.create_task(catch_loop())
 
             while True:
                 u = get_user(phone)
@@ -188,9 +258,9 @@ async def selfbot_worker(phone: str):
                     break
                 await asyncio.sleep(10)
 
-            meow_task.cancel()
-            fish_task.cancel()
-            await asyncio.gather(meow_task, fish_task, return_exceptions=True)
+            for t in (meow_task, fish_task, catch_task):
+                t.cancel()
+            await asyncio.gather(meow_task, fish_task, catch_task, return_exceptions=True)
 
         except Exception as e:
             print(f"❌ خطای بزرگ در worker {phone}: {e}")
