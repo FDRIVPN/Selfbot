@@ -90,7 +90,15 @@ async def selfbot_worker(phone: str):
             me = await client.get_me()
             print(f"✅ {phone} آنلاین شد → {me.first_name} (@{me.username})")
 
-            # --- resolve کردن peerهای گروه ---
+            # پر کردن کش peerها از دیالوگ‌ها
+            try:
+                async for _ in client.get_dialogs(limit=200):
+                    pass
+                print(f"📥 دیالوگ‌ها برای {phone} لود شد")
+            except Exception as e:
+                print(f"⚠️ خطا در لود دیالوگ‌ها {phone}: {e}")
+
+            # سعی در resolve — اگر نشد هم ادامه بده
             valid_chat_ids = []
             for cid in chat_ids:
                 try:
@@ -99,16 +107,17 @@ async def selfbot_worker(phone: str):
                     title = getattr(chat, "title", None) or str(cid)
                     print(f"✅ peer resolve شد: {cid} → {title}")
                 except Exception as e:
-                    print(f"⚠️ peer نامعتبر یا عضو نیست: {cid} → {e}")
+                    print(f"⚠️ resolve نشد (ادامه می‌دیم): {cid} → {e}")
+                    valid_chat_ids.append(cid)
 
             if not valid_chat_ids:
-                print(f"❌ هیچ گروه معتبری برای {phone} پیدا نشد")
+                print(f"❌ هیچ گروهی برای {phone} نیست")
                 await client.stop()
                 await asyncio.sleep(30)
                 continue
 
             chat_ids = valid_chat_ids
-            print(f"📋 گروه‌های معتبر {phone}: {chat_ids}")
+            print(f"📋 گروه‌های فعال {phone}: {chat_ids}")
 
             @client.on_message(filters.chat(chat_ids) & filters.user(BOT_USER_ID))
             async def handler(c: Client, message: Message):
