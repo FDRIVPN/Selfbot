@@ -81,7 +81,7 @@
     .btn-success { background: #16a34a; color: white; }
     .btn-danger { background: #dc2626; color: white; }
     .btn-gray { background: #6b7280; color: white; }
-    input[type="text"], input[type="number"] {
+    input[type="text"], input[type="number"], select {
         width: 100%;
         padding: 10px 12px;
         border: 1px solid #d1d5db;
@@ -159,6 +159,10 @@
                 <input type="checkbox" name="rescue_enabled" {% if user.rescue_enabled %}checked{% endif %}>
                 <span>نجات پیشی خیابونی</span>
             </label>
+            <label class="switch-item">
+                <input type="checkbox" name="catch_enabled" {% if user.catch_enabled %}checked{% endif %}>
+                <span>صید ماهی (دستور ماهی)</span>
+            </label>
         </div>
 
         <div class="field">
@@ -174,14 +178,34 @@
         </div>
 
         <div style="display:flex; gap:16px; flex-wrap:wrap;">
-            <div class="field" style="flex:1; min-width:180px;">
+            <div class="field" style="flex:1; min-width:160px;">
                 <label>فاصله ارسال میو (ثانیه)</label>
                 <input type="number" name="meow_interval" min="30" value="{{ user.meow_interval }}">
             </div>
-            <div class="field" style="flex:1; min-width:180px;">
+            <div class="field" style="flex:1; min-width:160px;">
                 <label>فاصله ارسال پیشی (ثانیه)</label>
                 <input type="number" name="fish_interval" min="30" value="{{ user.fish_interval }}">
             </div>
+            <div class="field" style="flex:1; min-width:160px;">
+                <label>فاصله ارسال ماهی (ثانیه)</label>
+                <input type="number" name="catch_interval" min="30" value="{{ user.catch_interval }}">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>قوانین صید ماهی (برای هر سطح)</label>
+            <p class="hint">یخچال = بندازش تو یخچال | پیشی = بده پیشی بخوره | فروش = فروش ماهی — اگر یخچال پر باشد خودکار فروش می‌شود</p>
+            {% set levels = ["افسانه", "حماسی", "کمیاب", "غیرمعمول", "معمولی", "اسطوره"] %}
+            {% for lv in levels %}
+            <div style="display:flex; align-items:center; gap:10px; margin:8px 0;">
+                <span style="width:90px; font-weight:500;">{{ lv }}</span>
+                <select name="rule_{{ lv }}" style="max-width:220px; padding:8px 10px;">
+                    <option value="fridge" {% if user.fish_rules.get(lv) == "fridge" %}selected{% endif %}>یخچال</option>
+                    <option value="cat" {% if user.fish_rules.get(lv) == "cat" %}selected{% endif %}>بده پیشی</option>
+                    <option value="sell" {% if user.fish_rules.get(lv) == "sell" %}selected{% endif %}>فروش</option>
+                </select>
+            </div>
+            {% endfor %}
         </div>
 
         <div class="field">
