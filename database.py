@@ -19,12 +19,12 @@ DEFAULT_FISH_RULES = {
 }
 
 DEFAULT_COOKED_RULES = {
-    "افسانه": "sell",
-    "حماسی": "sell",
+    "افسانه": "keep",
+    "حماسی": "keep",
     "کمیاب": "cat",
     "غیرمعمول": "cat",
     "معمولی": "sell",
-    "اسطوره": "sell",
+    "اسطوره": "keep",
 }
 
 
