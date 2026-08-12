@@ -128,6 +128,13 @@ async def selfbot_worker(phone: str):
                 text = message.text or message.caption or ""
                 print(f"📩 [{phone}] پیام دریافت شد: {text[:80]}")
 
+                # نمایش متن دقیق دکمه‌ها (برای دیباگ)
+                if message.reply_markup and message.reply_markup.inline_keyboard:
+                    print(f"🔘 دکمه‌های پیام:")
+                    for ri, row in enumerate(message.reply_markup.inline_keyboard):
+                        for bi, btn in enumerate(row):
+                            print(f"   [{ri},{bi}] = '{btn.text}'")
+
                 harvest_btn = u.get("harvest_button") or "برداشت میو پوینت ها 🧲"
                 rescue_btn = u.get("rescue_button") or "نجات پیشی خیابونی 🐱 🐈"
 
