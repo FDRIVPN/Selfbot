@@ -18,22 +18,27 @@ def init_db():
                 meow_enabled INTEGER DEFAULT 1,
                 fish_enabled INTEGER DEFAULT 1,
                 rescue_enabled INTEGER DEFAULT 1,
+                catch_enabled INTEGER DEFAULT 1,
                 is_active INTEGER DEFAULT 0,
                 cached_groups TEXT,
                 cached_groups_time REAL,
                 harvest_button TEXT DEFAULT 'برداشت میو پوینت ها 🧲',
                 rescue_button TEXT DEFAULT 'نجات پیشی خیابونی 🐱 🐈',
                 meow_interval INTEGER DEFAULT 300,
-                fish_interval INTEGER DEFAULT 600
+                fish_interval INTEGER DEFAULT 600,
+                catch_interval INTEGER DEFAULT 120,
+                fish_rules TEXT DEFAULT '{}'
             )
         """)
-        # اضافه کردن ستون‌های جدید اگر جدول قدیمی باشه
         columns = [
             ("rescue_enabled", "INTEGER DEFAULT 1"),
+            ("catch_enabled", "INTEGER DEFAULT 1"),
             ("harvest_button", "TEXT DEFAULT 'برداشت میو پوینت ها 🧲'"),
             ("rescue_button", "TEXT DEFAULT 'نجات پیشی خیابونی 🐱 🐈'"),
             ("meow_interval", "INTEGER DEFAULT 300"),
             ("fish_interval", "INTEGER DEFAULT 600"),
+            ("catch_interval", "INTEGER DEFAULT 120"),
+            ("fish_rules", "TEXT DEFAULT '{}'"),
         ]
         for col, typ in columns:
             try:
@@ -42,19 +47,30 @@ def init_db():
                 pass
         conn.commit()
 
+DEFAULT_FISH_RULES = {
+    "افسانه": "fridge",
+    "حماسی": "fridge",
+    "کمیاب": "cat",
+    "غیرمعمول": "cat",
+    "معمولی": "sell",
+}
+
 def save_user(phone, session_string, selected_groups=None,
               meow_enabled=True, fish_enabled=True, rescue_enabled=True,
-              is_active=False, cached_groups=None,
+              catch_enabled=True, is_active=False, cached_groups=None,
               harvest_button="برداشت میو پوینت ها 🧲",
               rescue_button="نجات پیشی خیابونی 🐱 🐈",
-              meow_interval=300, fish_interval=600):
+              meow_interval=300, fish_interval=600, catch_interval=120,
+              fish_rules=None):
+    if fish_rules is None:
+        fish_rules = DEFAULT_FISH_RULES
     with get_conn() as conn:
         conn.execute("""
             INSERT OR REPLACE INTO users
             (phone, session_string, selected_groups, meow_enabled, fish_enabled,
-             rescue_enabled, is_active, cached_groups, cached_groups_time,
-             harvest_button, rescue_button, meow_interval, fish_interval)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             rescue_enabled, catch_enabled, is_active, cached_groups, cached_groups_time,
+             harvest_button, rescue_button, meow_interval, fish_interval, catch_interval, fish_rules)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             phone,
             session_string,
@@ -62,6 +78,7 @@ def save_user(phone, session_string, selected_groups=None,
             1 if meow_enabled else 0,
             1 if fish_enabled else 0,
             1 if rescue_enabled else 0,
+            1 if catch_enabled else 0,
             1 if is_active else 0,
             json.dumps(cached_groups) if cached_groups else None,
             time.time() if cached_groups else None,
@@ -69,6 +86,8 @@ def save_user(phone, session_string, selected_groups=None,
             rescue_button or "نجات پیشی خیابونی 🐱 🐈",
             int(meow_interval) if meow_interval else 300,
             int(fish_interval) if fish_interval else 600,
+            int(catch_interval) if catch_interval else 120,
+            json.dumps(fish_rules) if isinstance(fish_rules, dict) else (fish_rules or "{}"),
         ))
         conn.commit()
 
@@ -77,20 +96,31 @@ def get_user(phone):
         row = conn.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
         if not row:
             return None
+        keys = row.keys()
+        rules_raw = row["fish_rules"] if "fish_rules" in keys and row["fish_rules"] else "{}"
+        try:
+            rules = json.loads(rules_raw) if rules_raw else {}
+        except:
+            rules = {}
+        if not rules:
+            rules = DEFAULT_FISH_RULES.copy()
         return {
             "phone": row["phone"],
             "session_string": row["session_string"],
             "selected_groups": json.loads(row["selected_groups"] or "[]"),
             "meow_enabled": bool(row["meow_enabled"]),
             "fish_enabled": bool(row["fish_enabled"]),
-            "rescue_enabled": bool(row["rescue_enabled"]) if "rescue_enabled" in row.keys() else True,
+            "rescue_enabled": bool(row["rescue_enabled"]) if "rescue_enabled" in keys else True,
+            "catch_enabled": bool(row["catch_enabled"]) if "catch_enabled" in keys else True,
             "is_active": bool(row["is_active"]),
             "cached_groups": json.loads(row["cached_groups"]) if row["cached_groups"] else None,
             "cached_groups_time": row["cached_groups_time"],
-            "harvest_button": row["harvest_button"] if "harvest_button" in row.keys() and row["harvest_button"] else "برداشت میو پوینت ها 🧲",
-            "rescue_button": row["rescue_button"] if "rescue_button" in row.keys() and row["rescue_button"] else "نجات پیشی خیابونی 🐱 🐈",
-            "meow_interval": int(row["meow_interval"]) if "meow_interval" in row.keys() and row["meow_interval"] else 300,
-            "fish_interval": int(row["fish_interval"]) if "fish_interval" in row.keys() and row["fish_interval"] else 600,
+            "harvest_button": row["harvest_button"] if "harvest_button" in keys and row["harvest_button"] else "برداشت میو پوینت ها 🧲",
+            "rescue_button": row["rescue_button"] if "rescue_button" in keys and row["rescue_button"] else "نجات پیشی خیابونی 🐱 🐈",
+            "meow_interval": int(row["meow_interval"]) if "meow_interval" in keys and row["meow_interval"] else 300,
+            "fish_interval": int(row["fish_interval"]) if "fish_interval" in keys and row["fish_interval"] else 600,
+            "catch_interval": int(row["catch_interval"]) if "catch_interval" in keys and row["catch_interval"] else 120,
+            "fish_rules": rules,
         }
 
 def get_all_users():
