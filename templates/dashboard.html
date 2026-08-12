@@ -161,20 +161,20 @@
             </label>
             <label class="switch-item">
                 <input type="checkbox" name="catch_enabled" {% if user.catch_enabled %}checked{% endif %}>
-                <span>صید ماهی (دستور ماهی)</span>
+                <span>صید ماهی + یخچال + پخت</span>
             </label>
         </div>
 
         <div class="field">
             <label>متن دکمه برداشت (دقیق)</label>
             <input type="text" name="harvest_button" value="{{ user.harvest_button }}">
-            <p class="hint">فقط وقتی دکمه دقیقاً همین متن باشه کلیک می‌شه</p>
+            <p class="hint">مثلاً: برداشت میو پوینت ها</p>
         </div>
 
         <div class="field">
             <label>متن دکمه نجات (دقیق)</label>
             <input type="text" name="rescue_button" value="{{ user.rescue_button }}">
-            <p class="hint">اگر پیدا نشد دکمه اول پیام زده می‌شه</p>
+            <p class="hint">مثلاً: نجات پیشی خیابونی</p>
         </div>
 
         <div style="display:flex; gap:16px; flex-wrap:wrap;">
@@ -193,16 +193,30 @@
         </div>
 
         <div class="field">
-            <label>قوانین صید ماهی (برای هر سطح)</label>
-            <p class="hint">یخچال = بندازش تو یخچال | پیشی = بده پیشی بخوره | فروش = فروش ماهی — اگر یخچال پر باشد خودکار فروش می‌شود</p>
+            <label>قوانین صید / ماهی خام</label>
+            <p class="hint">یخچال = بنداز تو یخچال / بپوخش | پیشی = بده پیشی | فروش = فروش ماهی</p>
             {% set levels = ["افسانه", "حماسی", "کمیاب", "غیرمعمول", "معمولی", "اسطوره"] %}
             {% for lv in levels %}
             <div style="display:flex; align-items:center; gap:10px; margin:8px 0;">
                 <span style="width:90px; font-weight:500;">{{ lv }}</span>
                 <select name="rule_{{ lv }}" style="max-width:220px; padding:8px 10px;">
-                    <option value="fridge" {% if user.fish_rules.get(lv) == "fridge" %}selected{% endif %}>یخچال</option>
+                    <option value="fridge" {% if user.fish_rules.get(lv) == "fridge" %}selected{% endif %}>یخچال / بپوخش</option>
                     <option value="cat" {% if user.fish_rules.get(lv) == "cat" %}selected{% endif %}>بده پیشی</option>
                     <option value="sell" {% if user.fish_rules.get(lv) == "sell" %}selected{% endif %}>فروش</option>
+                </select>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="field">
+            <label>قوانین بعد از پخت (ماهی پخته‌شده)</label>
+            <p class="hint">وقتی نوشته «پخته شده» این قوانین اعمال می‌شود</p>
+            {% for lv in levels %}
+            <div style="display:flex; align-items:center; gap:10px; margin:8px 0;">
+                <span style="width:90px; font-weight:500;">{{ lv }}</span>
+                <select name="cooked_{{ lv }}" style="max-width:220px; padding:8px 10px;">
+                    <option value="sell" {% if user.cooked_rules.get(lv) == "sell" %}selected{% endif %}>فروش</option>
+                    <option value="cat" {% if user.cooked_rules.get(lv) == "cat" %}selected{% endif %}>بده پیشی</option>
                 </select>
             </div>
             {% endfor %}
